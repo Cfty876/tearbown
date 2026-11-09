@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="448" height="64" viewBox="0 0 448 64">
+  <!-- One 64px cell for each entry in PlayerTools.NAMES. -->
+  <g fill="#fff">
+    <g transform="translate(0 0)">
+      <path d="M10 12h38v5h5v13H8V17h2zM28 29h9v24h-9z"/>
+      <path fill="#999" d="M12 17h34v4H12zm17 29h7v9h-7z"/>
+    </g>
+    <g transform="translate(64 0)">
+      <path d="M7 32h14l10-8h27v5H33l-6 7v9H9v-7H7zm26-12h25v3H33zm-2 16h12v5H31z"/>
+      <path fill="#999" d="M8 42h18v4H8zm26-13h16v3H34z"/>
+    </g>
+    <g transform="translate(128 0)">
+      <path d="M23 16h18v5h4v28h-4v5H23v-5h-4V21h4zm7-7h4v7h-4zm6-3h8v4h-8z"/>
+      <path fill="#999" d="M24 24h16v5H24zm0 16h16v5H24z"/>
+    </g>
+    <g transform="translate(192 0)">
+      <path d="M8 23h40v-4h8v17h-8v-4H34v7h-8v10h-7V35H8zm12-5h15v4H20zm-8 18h5v6h-5z"/>
+      <path fill="#999" d="M12 26h33v3H12zm38-4h3v10h-3z"/>
+    </g>
+    <g transform="translate(256 0)">
+      <path d="M18 33h14v19h-4v5h-8v-5h-4V36zm8-15h11v7h9v6H26zm11-2h12v5H37z"/>
+      <path opacity=".67" d="M50 18h4v-5h4v8h4v4h-8v-2h-4z"/>
+      <path fill="#999" d="M20 41h8v6h-8z"/>
+    </g>
+    <g transform="translate(320 0)">
+      <path d="M23 18h18v5h4v29h-4v4H23v-4h-4V23h4zm4-8h12v6H27zm15 1h6v3h-6z"/>
+      <path fill="#999" d="M51 9h5v3h-5zm4 6h4v3h-4zM23 32h18v11H23z"/>
+    </g>
+    <g transform="translate(384 0)">
+      <path d="M22 21h19v4h4v25h-5v5H23v-5h-5V25h4zm5-8h12v7H27zm-2-5h21v4H25zm17 7h8v5h5v13h-4V23h-5v-4h-4z"/>
+      <path fill="#999" d="M23 34h17v8H23z"/>
+    </g>
+  </g>
+</svg>

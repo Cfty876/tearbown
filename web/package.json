@@ -1,0 +1,7 @@
+{
+  "name": "voxel-teardown-web",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "node serve.mjs" },
+  "engines": { "node": "24.x" }
+}

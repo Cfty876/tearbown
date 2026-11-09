@@ -1,0 +1,10 @@
+/game/.godot/
+/native/build/
+/native/bin/
+/videos/
+__pycache__/
+node_modules/
+.vercel/
+.env
+.env.*
+!.env.example

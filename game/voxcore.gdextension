@@ -1,0 +1,12 @@
+[configuration]
+
+entry_symbol = "voxcore_init"
+compatibility_minimum = "4.7"
+reloadable = false
+
+[libraries]
+
+windows.debug.x86_64 = "res://bin/voxcore.dll"
+windows.release.x86_64 = "res://bin/voxcore.dll"
+web.release.wasm32 = "res://bin/voxcore.wasm"
+web.debug.wasm32 = "res://bin/voxcore.wasm"
