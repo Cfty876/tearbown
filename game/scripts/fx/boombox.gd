@@ -579,7 +579,7 @@ func _receive(packet: Dictionary) -> void:
 				if is_instance_valid(_remote_model) and _remote_box.visible:
 					_remote_model.insert_tape(tint)
 			var digest := str(packet.get("digest", ""))
-			var reuse := (digest.length() == 64 and digest == _cached_remote.get("digest", "")
+			var reuse: bool = (digest.length() == 64 and digest == _cached_remote.get("digest", "")
 				and size == _cached_remote.get("size", 0) and ext == _cached_remote.get("ext", ""))
 			remote.stream = _cached_remote.stream if reuse else null
 			_in = {"size": size, "ext": ext, "bytes": PackedByteArray(), "at": 0, "time": TRANSFER_TIMEOUT,
