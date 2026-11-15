@@ -24,6 +24,16 @@
       <p id="boot-status" role="status"></p>
     </div>
   </main>
+  <dialog id="cassette-dialog" aria-labelledby="cassette-title"
+      style="color:#f3eee5;background:#152029;border:1px solid #60848e;border-radius:10px;padding:1.5rem">
+    <form method="dialog">
+      <h2 id="cassette-title">Импорт кассеты</h2>
+      <p>MP3, OGG или WAV до 20 МБ</p>
+      <input id="cassette-picker" type="file" accept=".mp3,.ogg,.wav" hidden>
+      <button id="cassette-select" type="button">Выбрать аудиофайл</button>
+      <button>Отмена</button>
+    </form>
+  </dialog>
   <script src="/release-config.js"></script>
   <script src="$GODOT_URL"></script>
   <script>
@@ -50,32 +60,36 @@
       }
     });
 
+    const cassetteDialog = document.querySelector("#cassette-dialog");
+    const cassettePicker = document.querySelector("#cassette-picker");
+    document.querySelector("#cassette-select").addEventListener("click", () => cassettePicker.click());
     window.BreakpointAudio = {
       pick(limit, done) {
-        const picker = document.createElement("input");
-        picker.type = "file";
-        picker.accept = ".mp3,.ogg,.wav";
-        picker.hidden = true;
-        document.body.append(picker);
-        picker.addEventListener("cancel", () => {
-          picker.remove();
+        if (cassetteDialog.open) return;
+        cassettePicker.value = "";
+        let selected = false;
+        const finish = () => {
+          cassettePicker.removeEventListener("change", load);
           canvas.focus();
-          done();
-        }, { once: true });
-        picker.addEventListener("change", async () => {
-          const file = picker.files[0];
-          picker.remove();
-          canvas.focus();
-          if (!file) return done();
+          if (!selected) done();
+        };
+        const load = async () => {
+          const file = cassettePicker.files[0];
+          if (!file) return;
+          selected = true;
+          cassetteDialog.close();
           if (file.size > limit) return done("Выбери MP3, OGG или WAV размером до 20 МБ.");
+          let data;
           try {
-            const data = await file.arrayBuffer();
-            done(file.name, data);
+            data = new Uint8Array(await file.arrayBuffer());
           } catch {
-            done("Не удалось открыть аудиофайл.");
+            return done("Не удалось открыть аудиофайл.");
           }
-        }, { once: true });
-        picker.click();
+          done(file.name, data);
+        };
+        cassetteDialog.addEventListener("close", finish, { once: true });
+        cassettePicker.addEventListener("change", load, { once: true });
+        cassetteDialog.showModal();
       }
     };
 
