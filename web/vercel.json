@@ -9,6 +9,7 @@
     { "source": "/(.*)", "headers": [{ "key": "X-Content-Type-Options", "value": "nosniff" }] },
     { "source": "/play/(.*)\\.wasm", "headers": [{ "key": "Content-Type", "value": "application/wasm" }] },
     { "source": "/play/(.*)\\.pck", "headers": [{ "key": "Content-Type", "value": "application/octet-stream" }] },
-    { "source": "/release-config.js", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
+    { "source": "/release-config.js", "headers": [{ "key": "Cache-Control", "value": "no-store" }] },
+    { "source": "/desktop-release.json", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
   ]
 }

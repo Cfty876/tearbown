@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -27,12 +27,18 @@ function publicUrl(name, scheme) {
   return url.href;
 }
 
+const manifestFile = resolve(root, "desktop-release.json");
+const manifest = await readFile(manifestFile, "utf8")
+  .then(content => JSON.parse(content))
+  .catch(error => { if (error.code === "ENOENT") return null; throw error; });
 const config = {
   relay: publicUrl("BREAKPOINT_RELAY_URL", "wss:")
     || (process.env.BREAKPOINT_USE_VERCEL_ROOMS === "1" && process.env.VERCEL_URL
       ? "wss://" + process.env.VERCEL_URL + "/api/rooms" : ""),
-  windows: publicUrl("BREAKPOINT_WINDOWS_URL", "https:"),
-  macos: publicUrl("BREAKPOINT_MACOS_URL", "https:"),
+  windows: manifest?.platforms.windows?.url || publicUrl("BREAKPOINT_WINDOWS_URL", "https:"),
+  macos: manifest?.platforms.macos?.url || publicUrl("BREAKPOINT_MACOS_URL", "https:"),
+  macosNotarized: manifest?.platforms.macos?.notarized === true,
+  version: manifest?.version || "",
 };
 await rm(output, { recursive: true, force: true });
 await mkdir(resolve(output, "play"), { recursive: true });
@@ -43,4 +49,5 @@ for (const file of ["menu_courtyard.png", "map_district.jpg", "map_school.jpg", 
   await cp(resolve(root, "media", file), resolve(output, "media", file));
 }
 await writeFile(resolve(output, "release-config.js"), "globalThis.BreakpointConfig = " + JSON.stringify(config) + ";\n");
+if (manifest) await cp(manifestFile, resolve(output, "desktop-release.json"));
 console.log("BREAKPOINT website built. Browser rooms:", config.relay ? "configured" : "disabled");

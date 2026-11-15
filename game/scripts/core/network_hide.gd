@@ -49,7 +49,8 @@ var _fire_visible := false
 var _fire_last := false
 var _tool_last := -1
 var _layout_seed := -1
-var _hud: Label
+var _board: RoundBoard
+var _sync_requested_at := {}
 var _npc_timer := 0.0
 
 
@@ -125,26 +126,17 @@ func _ready() -> void:
 	if WebSession.is_host:
 		world.network_dirty.clear()
 		world.network_blast.connect(func(at: Vector3, radius: float):
-			WebSession.send({"k": "blast", "p": _pack(at), "r": radius}))
+			WebSession.send({"k": "blast", "p": _pack(at), "r": radius, "round": _round}))
 	else:
 		world.fire.set_process(false)
 		for object in world.objects:
 			_freeze_replica(object)
 	var canvas := CanvasLayer.new()
-	canvas.layer = 12
+	canvas.layer = 32
 	add_child(canvas)
-	_hud = Label.new()
-	_hud.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	canvas.add_child(_hud)
-	_hud.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	_hud.offset_left = -640
-	_hud.offset_right = 640
-	_hud.offset_top = 78
-	_hud.add_theme_font_size_override("font_size", 28)
-	_hud.add_theme_constant_override("outline_size", 6)
-	_hud.add_theme_color_override("font_outline_color", Color.BLACK)
-	_hud.add_theme_color_override("font_color", Color("#ffe4ac"))
+	_board = RoundBoard.new()
+	canvas.add_child(_board)
+	WebSession.transport_restored.connect(_refresh_after_reconnect)
 	WebSession.packet.connect(_receive)
 	WebSession.drain()
 	if WebSession.is_host:
@@ -214,7 +206,6 @@ func _process(delta: float) -> void:
 		_voice.public_address = world.secrets is SchoolSecrets and world.secrets.on_public_address()
 	if not WebSession.is_host:
 		_send_tool()
-	_stage.update_countdown(_remaining, stunned(WebSession.local_side))
 	var now := Time.get_ticks_msec()
 	if world.gadgets.clock_active() and _last_process_ms > 0:
 		_deadline_ms += now - _last_process_ms
@@ -252,11 +243,12 @@ func _process(delta: float) -> void:
 			_flush_voxels(not weapons_enabled)
 	_state_timer -= delta
 	if _state_timer <= 0.0:
-		_state_timer = 0.75
+		_state_timer = 1.5
 		if WebSession.is_host:
 			_send_state()
-		elif _phase == "wait":
+		elif _phase == "wait" and not WebSession.is_reconnecting():
 			WebSession.send({"k": "ready"})
+	_stage.update_countdown(stunned(WebSession.local_side))
 	_update_label()
 
 
@@ -690,7 +682,7 @@ func _finish(reason: String) -> void:
 	_send_state()
 
 
-func _send_state() -> void:
+func _send_state(side := -1) -> void:
 	if _phase == "wait":
 		return
 	var positions: Array = []
@@ -699,9 +691,13 @@ func _send_state() -> void:
 	var stuns: Array[int] = []
 	for deadline in _stun_until:
 		stuns.append(maxi(0, deadline - Time.get_ticks_msec()))
-	WebSession.send({"k": "state", "phase": _phase, "t": _remaining, "round": _round,
+	var state := {"k": "state", "phase": _phase, "t": _remaining, "round": _round,
 		"seekers": _seekers, "found": _found, "result": _result, "layout": _layout_seed, "spawns": positions,
-		"rules": rules, "health": _health, "stuns": stuns, "seekers_won": _win_seekers})
+		"rules": rules, "health": _health, "stuns": stuns, "seekers_won": _win_seekers}
+	if side > 0:
+		WebSession.send_to_side(side, state)
+	else:
+		WebSession.send(state)
 
 
 func _set_remaining(seconds: float) -> void:
@@ -718,23 +714,24 @@ func _greet_team() -> void:
 
 func _update_label() -> void:
 	var role := "ИЩУЩИЙ" if _am_seeker() else "ПРЯЧУЩИЙСЯ"
-	var seconds := "%02d:%02d" % [int(_remaining) / 60, int(_remaining) % 60]
-	var value := "Готовим раунд…"
-	match _phase:
-		"brief":
-			value = ""
-		"hide":
-			value = role + "  ·  ФОРА  " + seconds
-		"seek":
-			value = ("ТЕБЯ НАШЛИ" if WebSession.local_side in _found else role) + "  ·  %d/%d найдено  " % [_found.size(), _hider_count()] + seconds
-		"done":
-			value = _result + "  ·  передышка"
-	if _hud.text != value:
-		_hud.text = value
+	if WebSession.local_side in _found:
+		role = "ТЕБЯ НАШЛИ"
+	var state := "reconnect" if WebSession.is_reconnecting() and _phase in ["hide", "seek"] else _phase
+	_board.visible = not pause_menu.is_open()
+	if _board.visible:
+		_board.refresh(state, _remaining, float(rules.hide if _phase == "hide" else rules.seek),
+			_hider_count() - _found.size(), _seekers.size(), role)
 	if is_instance_valid(_bot_chat):
 		if not _bot_chat._available() and _bot_chat.opened:
 			_bot_chat.close_chat()
 		_bot_chat.set_round_clock(_phase, int(float(rules.seek) - _remaining) if _phase == "seek" else 0, ceili(_remaining))
+
+
+func _refresh_after_reconnect() -> void:
+	if WebSession.is_host:
+		_send_state()
+	else:
+		WebSession.send({"k": "sync_round"})
 
 
 func _tool_allowed(tool: int) -> bool:
@@ -1049,6 +1046,12 @@ func _receive(data: Dictionary) -> void:
 		_ready_sides[side] = true
 		_try_start()
 		return
+	if kind == "sync_round" and WebSession.is_host and side > 0:
+		var now := Time.get_ticks_msec()
+		if now >= int(_sync_requested_at.get(side, 0)):
+			_sync_requested_at[side] = now + 1500
+			_send_state(side)
+		return
 	if not WebSession.is_host and kind == "state":
 		_receive_state(data)
 		return
@@ -1295,7 +1298,7 @@ func _exit_tree() -> void:
 
 
 func _send_fire() -> void:
-	if not world.fire.burn_updates.is_empty() and WebSession.send({"k": "burn_cells", "cells": world.fire.burn_updates}):
+	if not world.fire.burn_updates.is_empty() and WebSession.send({"k": "burn_cells", "cells": world.fire.burn_updates, "round": _round}):
 		world.fire.burn_updates.clear()
 	var points := world.fire.visual_positions()
 	if points.is_empty() and not _fire_visible:
@@ -1303,7 +1306,7 @@ func _send_fire() -> void:
 	var packed: Array = []
 	for at in points:
 		packed.append(_pack(at))
-	if WebSession.send({"k": "fire", "points": packed}):
+	if WebSession.send({"k": "fire", "points": packed, "round": _round}):
 		_fire_visible = not points.is_empty()
 
 
@@ -1313,7 +1316,7 @@ func _flush_voxels(boards_only := false) -> void:
 	if boards_only:
 		removed = removed.filter(func(id: int): return id < 0)
 		dirty = dirty.filter(func(id: int): return id < 0)
-	if not removed.is_empty() and WebSession.send({"k": "gone", "ids": removed}):
+	if not removed.is_empty() and WebSession.send({"k": "gone", "ids": removed, "round": _round}):
 		if boards_only:
 			world.network_removed = world.network_removed.filter(func(id: int): return id > 0)
 		else:
@@ -1329,7 +1332,7 @@ func _flush_voxels(boards_only := false) -> void:
 			continue
 		var dim := o.volume.get_size()
 		var packet := {
-			"k": "vox", "id": id, "dim": [dim.x, dim.y, dim.z],
+			"k": "vox", "round": _round, "id": id, "dim": [dim.x, dim.y, dim.z],
 			"static": o.static_mode, "transform": _xform(o),
 			"bytes": Marshalls.raw_to_base64(raw.compress(FileAccess.COMPRESSION_FASTLZ)),
 		}

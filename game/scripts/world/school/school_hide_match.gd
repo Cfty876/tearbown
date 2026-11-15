@@ -104,7 +104,8 @@ var _recorder: SchoolReplayRecorder
 var _last_heard_player := -100.0
 var _last_player_noise := ""
 var _last_player_noise_at := Vector3.INF
-var _timer_label: Label
+var _board: RoundBoard
+var _board_layer: CanvasLayer
 var _layer: CanvasLayer
 var _waiting_room: RoomRoundUi
 var _door_lock := 0.0
@@ -488,8 +489,6 @@ func begin_seek() -> void:
 
 func _process(_delta: float) -> void:
 	if not is_instance_valid(network) and phase != "loading" and phase != "done":
-		if phase == "hide" and is_instance_valid(_waiting_room):
-			_waiting_room.update_countdown(_head_start, false)
 		_update_hud()
 
 
@@ -2070,20 +2069,11 @@ func _build_hud() -> void:
 	_layer = CanvasLayer.new()
 	_layer.layer = 13
 	add_child(_layer)
-	var plate := PanelContainer.new()
-	plate.custom_minimum_size = Vector2(455, 54)
-	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	plate.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	plate.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	plate.position.y = 28
-	plate.add_theme_stylebox_override("panel", MenuStyle.panel(Color("#10191feb")))
-	_layer.add_child(plate)
-	var column := VBoxContainer.new()
-	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	plate.add_child(column)
-	_timer_label = MenuStyle.label("", 23, MenuStyle.GOLD)
-	_timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	column.add_child(_timer_label)
+	_board_layer = CanvasLayer.new()
+	_board_layer.layer = 32
+	add_child(_board_layer)
+	_board = RoundBoard.new()
+	_board_layer.add_child(_board)
 
 
 func _input(event: InputEvent) -> void:
@@ -2101,15 +2091,16 @@ func _record(kind: String, data: Dictionary = {}) -> void:
 
 
 func _update_hud() -> void:
-	_chat.set_round_clock(phase, floori(elapsed), ceili(maxf(0.0, ROUND_LENGTH - elapsed)))
-	var title := "БОТ ПРЯЧЕТСЯ" if phase == "hide" else "ПРЯТКИ С БОТОМ" \
-		+ ("   ·   ШОРОХ %d" % combat_health if combat_health < 100 else "")
-	var time := maxi(0, ceili(_head_start if phase == "hide" else ROUND_LENGTH - elapsed))
-	var value := "%s   ·   %02d:%02d" % [title, time / 60, time % 60]
+	var time := _head_start if phase == "hide" else maxf(0.0, ROUND_LENGTH - elapsed)
+	_chat.set_round_clock(phase, floori(elapsed), ceili(time))
+	var role := "ПРЯТКИ С БОТОМ"
+	if phase == "seek" and combat_health < 100:
+		role += "  ·  ЗДОРОВЬЕ БОТА %d" % combat_health
 	if _recorder != null:
-		value += "   ·   ● REC"
-	if _timer_label.text != value:
-		_timer_label.text = value
+		role += "  ·  ● REC"
+	_board.visible = not pause_menu.is_open()
+	if _board.visible:
+		_board.refresh(phase, time, HEAD_START if phase == "hide" else ROUND_LENGTH, 1, 1, role)
 
 
 func _finish(found: bool, reason := "") -> void:
@@ -2130,7 +2121,7 @@ func _finish(found: bool, reason := "") -> void:
 	world.player.tools.input_enabled = false
 	world.player.navigation_menu_open = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	_timer_label.get_parent().get_parent().hide()
+	_board.hide()
 	if is_instance_valid(_waiting_room):
 		_waiting_room.queue_free()
 	var overlay := ColorRect.new()

@@ -53,6 +53,11 @@ p { line-height: 1.65; color: var(--muted); margin: 9px 0 0; }
 .downloads { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .downloads article { padding: 22px; }
 .downloads .button { margin-top: 16px; }
+.install { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 14px; }
+.install summary { cursor: pointer; font-weight: 650; }
+.install ol { padding-left: 24px; margin: 12px 0; }
+.install li + li { margin-top: 6px; }
+.install a { text-decoration: underline; text-underline-offset: 3px; }
 .status { font-size: .92rem; margin-top: 20px; }
 .site-footer { border-top: 1px solid var(--line); border-bottom: 0; }
 @media (max-width: 720px) {

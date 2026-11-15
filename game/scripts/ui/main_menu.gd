@@ -11,6 +11,10 @@ var _host_launch: Button
 var _lobby_count: Label
 var _lobby_roster: GridContainer
 var _back_action := Callable()
+var _update_status: Label
+var _update_download: Button
+var _update_check: Button
+var _update_entry: Button
 
 
 func _ready() -> void:
@@ -33,6 +37,9 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	WebSession.status_changed.connect(_status_message)
 	WebSession.lobby_changed.connect(_lobby_changed)
+	if DesktopRelease.supported():
+		DesktopRelease.changed.connect(_update_release_view)
+		DesktopRelease.check()
 	_home()
 
 
@@ -93,6 +100,10 @@ func _home() -> void:
 	actions.add_child(MenuStyle.button("Создать комнату", create, false, 72))
 	actions.add_child(MenuStyle.button("Войти по коду", _lobby, false, 54))
 	actions.add_child(MenuStyle.button("Настройки", _settings, false, 62))
+	if DesktopRelease.supported():
+		_update_entry = MenuStyle.button("Обновления", _updates, false, 52)
+		actions.add_child(_update_entry)
+		_update_release_view()
 	if not OS.has_feature("web"):
 		actions.add_child(MenuStyle.button("Выйти", GameState.exit_game, false, 62))
 	if not WebSession.last_error.is_empty():
@@ -126,6 +137,34 @@ func _interior(kicker: String, title: String, subtitle: String, back: Callable) 
 		box.add_child(MenuStyle.label(subtitle, 24, MenuStyle.MUTED))
 	_space(box, 6)
 	return box
+
+
+func _updates() -> void:
+	var box := _interior("BREAKPOINT", "Обновления", "Установлена версия " + DesktopRelease.version(), _home)
+	_update_status = MenuStyle.label("", 25, MenuStyle.GOLD)
+	box.add_child(_update_status)
+	var tip := "Открой ZIP и замени BREAKPOINT.app в папке «Программы»." if OS.get_name() == "macOS" \
+		else "Закрой игру и распакуй новую сборку целиком в отдельную папку."
+	box.add_child(MenuStyle.label(tip, 21, MenuStyle.MUTED))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	box.add_child(row)
+	_update_check = MenuStyle.button("Проверить", func(): DesktopRelease.check(true), false, 54)
+	_update_download = MenuStyle.button("Скачать и открыть архив", DesktopRelease.download, true, 54)
+	row.add_child(_update_check)
+	row.add_child(_update_download)
+	row.add_child(MenuStyle.button("Страница загрузок", func(): OS.shell_open(DesktopRelease.DOWNLOADS), false, 54))
+	_update_release_view()
+	DesktopRelease.check()
+
+
+func _update_release_view() -> void:
+	if is_instance_valid(_update_entry):
+		_update_entry.text = "Обновления" if DesktopRelease.candidate.is_empty() else "Доступно обновление"
+	if is_instance_valid(_update_status):
+		_update_status.text = DesktopRelease.status
+		_update_download.disabled = DesktopRelease.busy() or DesktopRelease.candidate.is_empty()
+		_update_check.disabled = DesktopRelease.busy()
 
 
 func _maps() -> void:

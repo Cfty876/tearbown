@@ -8,7 +8,6 @@ var _curtain: ColorRect
 var _left_door: ColorRect
 var _right_door: ColorRect
 var _waiting_title: Label
-var _waiting_time: Label
 var _stun_label: Label
 var _controls: VBoxContainer
 var _brief: Control
@@ -38,7 +37,6 @@ func clear() -> void:
 	_left_door = null
 	_right_door = null
 	_waiting_title = null
-	_waiting_time = null
 	_stun_label = null
 	_controls = null
 	_brief = null
@@ -83,13 +81,12 @@ func hide_phase(is_seeker: bool) -> void:
 	_left_door = _door_leaf(0.0, 0.5, false)
 	_right_door = _door_leaf(0.5, 1.0, true)
 	var body := _center(_curtain)
-	body.modulate.a = 0.0
-	create_tween().tween_property(body, "modulate:a", 1.0, 0.28)
+	if not bool(GameState.map_options.reduced_motion):
+		body.modulate.a = 0.0
+		create_tween().tween_property(body, "modulate:a", 1.0, 0.28)
 	body.add_child(_headline("ШКОЛЬНЫЕ ПРЯТКИ" if GameState.level == GameState.LEVEL_SCHOOL else "ПРЯТКИ", 22, MenuStyle.GOLD))
 	_waiting_title = _headline("Комната ожидания", 58)
 	body.add_child(_waiting_title)
-	_waiting_time = _headline("00:00", 72, Color("#f5bd7d"))
-	body.add_child(_waiting_time)
 	body.add_child(_headline("Прячущиеся занимают позиции", 24, MenuStyle.MUTED))
 
 
@@ -149,18 +146,16 @@ func open_door(is_seeker: bool) -> void:
 	_tween.tween_property(_left_door, "position:x", _left_door.position.x - width, duration)
 	_tween.tween_property(_right_door, "position:x", _right_door.position.x + width, duration)
 	_tween.chain().tween_callback(func():
-		_curtain.queue_free()
-		_curtain = null)
+		if is_instance_valid(_curtain):
+			_curtain.queue_free()
+			_curtain = null)
 	VoxelWorld.instance.sfx.play_ui("metal", -9.0)
 	var active_player := room.player if is_instance_valid(room) else solo_player
-	if is_instance_valid(active_player):
+	if is_instance_valid(active_player) and not bool(GameState.map_options.reduced_motion):
 		active_player.shake(0.15)
 
 
-func update_countdown(seconds: float, stunned: bool) -> void:
-	if is_instance_valid(_curtain) and is_instance_valid(_waiting_time):
-		var remain := ceili(seconds)
-		_waiting_time.text = "%02d:%02d" % [remain / 60, remain % 60]
+func update_countdown(stunned: bool) -> void:
 	if stunned and is_instance_valid(room) and room._phase == "seek":
 		if not is_instance_valid(_stun_label):
 			var body := _center(_root)
@@ -194,7 +189,8 @@ func show_result(seekers_won: bool) -> void:
 	box.add_child(_headline("Найдено %d из %d" % [room._found.size(), room._hider_count()], 25, MenuStyle.MUTED))
 	label.modulate.a = 0.0
 	_tween = create_tween()
-	_tween.tween_property(label, "modulate:a", 1.0, 0.38)
+	var duration := 0.05 if bool(GameState.map_options.reduced_motion) else 0.38
+	_tween.tween_property(label, "modulate:a", 1.0, duration)
 	var line := ColorRect.new()
 	line.color = result_color
 	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -202,7 +198,7 @@ func show_result(seekers_won: bool) -> void:
 	line.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	line.offset_top = -8.0
 	line.scale.x = 0.0
-	_tween.parallel().tween_property(line, "scale:x", 1.0, 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_tween.parallel().tween_property(line, "scale:x", 1.0, duration + 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	if not OS.has_feature("web"):
 		_tween.tween_interval(1.55)
 		_tween.tween_callback(func():

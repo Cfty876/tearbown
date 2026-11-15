@@ -38,9 +38,29 @@
     <section id="downloads" class="section" aria-labelledby="downloads-title">
       <h2 id="downloads-title">Скачать игру</h2>
       <div class="downloads">
-        <article><h3>Windows</h3><p>64-разрядная сборка.</p><a id="windows-download" class="button primary" hidden>Скачать для Windows</a><p id="windows-status" class="status">Сборка пока недоступна.</p></article>
-        <article><h3>macOS</h3><p>Сборка для Apple Silicon и Intel.</p><a id="macos-download" class="button primary" hidden>Скачать для macOS</a><p id="macos-status" class="status">Сборка пока недоступна.</p></article>
+        <article>
+          <h3>Windows</h3>
+          <p>64-разрядная сборка. Распакуйте ZIP целиком и запустите <code>BREAKPOINT.exe</code>.</p>
+          <a id="windows-download" class="button primary" hidden>Скачать для Windows</a>
+          <p id="windows-status" class="status">Сборка пока недоступна.</p>
+        </article>
+        <article>
+          <h3>macOS</h3>
+          <p>Один ZIP для Mac с Apple Silicon и Intel. Требуется macOS 12 или новее.</p>
+          <a id="macos-download" class="button primary" hidden>Скачать для Mac</a>
+          <p id="macos-status" class="status">Сборка пока недоступна.</p>
+          <details class="install" open>
+            <summary>Как установить на Mac</summary>
+            <ol>
+              <li>Скачайте ZIP и откройте его в папке «Загрузки».</li>
+              <li>Перетащите <code>BREAKPOINT.app</code> в «Программы».</li>
+              <li>Запустите игру из папки «Программы».</li>
+            </ol>
+            <p id="macos-test">Для тестового выпуска macOS может запросить разовое подтверждение. После первой попытки запуска откройте «Системные настройки → Конфиденциальность и безопасность» и выберите «Открыть всё равно» для BREAKPOINT. <a href="https://support.apple.com/ru-ru/102445">Инструкция Apple</a></p>
+          </details>
+        </article>
       </div>
+      <p class="status">Новые версии появляются в главном меню игры, во вкладке «Обновления».</p>
       <p id="online-status" class="status" role="status">Проверяем настройки онлайн-комнат…</p>
     </section>
   </main>

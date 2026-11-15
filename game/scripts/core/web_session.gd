@@ -4,6 +4,7 @@ signal packet(data: Dictionary)
 signal media_packet(data: Dictionary)
 signal status_changed(text: String)
 signal lobby_changed
+signal transport_restored
 
 const LAN_PORT := 47840
 const MEDIA_CHANNEL := 2
@@ -133,6 +134,10 @@ func is_online() -> bool:
 	return _online != null
 
 
+func is_reconnecting() -> bool:
+	return _online != null and _online.reconnecting
+
+
 func host_online(map: String, options: Dictionary, endpoint := "") -> void:
 	if GameState.room_map_allowed(map):
 		_open_online({"op": "create", "rules": RoomRules.normalized(map, options)}, endpoint)
@@ -187,6 +192,7 @@ func _receive_online(message: Dictionary) -> void:
 			if connected:
 				if operation == "resumed":
 					get_tree().call_group("hud", "message", "Связь восстановлена", 3.0)
+					transport_restored.emit()
 				return
 			if not GameState.room_map_allowed(map):
 				_online_failed("Для этой комнаты нужна другая версия игры.")

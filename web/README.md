@@ -5,10 +5,17 @@
 ## Vercel
 
 1. Подключите репозиторий. **Root Directory** — `web`, Framework Preset — **Other**, команда сборки — `npm run build`, выходная папка — `dist`.
-2. Укажите `BREAKPOINT_WINDOWS_URL` и `BREAKPOINT_MACOS_URL` для опубликованных архивов. macOS-архив выкладывается после подписи Developer ID и нотариального заверения Apple.
+2. Опубликуйте ZIP для Windows и macOS на GitHub Releases. Сайт и настольные клиенты получают ссылки и контрольные суммы из `desktop-release.json`. Без этого файла сайт может использовать `BREAKPOINT_WINDOWS_URL` и `BREAKPOINT_MACOS_URL`.
 3. Подключите Redis через Vercel Marketplace и включите Fluid Compute. Функция `/api/rooms` читает закрытую строку подключения из `BREAKPOINT_REDIS_URL`, `REDIS_URL` или `KV_URL`. Для Франкфурта используйте регион Redis `fra1`. HTTP-запрос `GET /api/rooms` проверяет доступ к Redis.
 4. Задайте `BREAKPOINT_RELAY_URL=wss://ваш-домен/api/rooms` и повторите сборку. Для настольных клиентов укажите тот же адрес в форме комнаты или в `online.cfg`. Используйте новые сборки с переподключением. Коды браузерных комнат действуют на «Арене». Windows и macOS используют настольные комнаты.
 5. Проверьте вход и матч из двух разных сетей, а также продолжение раунда после смены соединения. Vercel ограничивает длительность WebSocket. Клиент восстанавливает комнату по служебному ключу, а Redis возвращает пропущенные надёжные события. Позиции передаются заново в следующем кадре.
+
+## Выпуск обновления
+
+1. Увеличьте `application/config/version` в `game/project.godot` и версии macOS в `game/export_presets.cfg`. Соберите настольные архивы.
+2. Создайте GitHub-релиз с тегом вида `breakpoint-v1.1.0` и файлами `BREAKPOINT-Windows-x64.zip` и `BREAKPOINT-macOS.zip`.
+3. Из корня проекта выполните `python tools/make_release_manifest.py 1.1.0 --windows <windows.zip> --macos <macos.zip> --output web/desktop-release.json`. Флаг `--macos-notarized` используйте после успешной проверки нотариального заверения Apple.
+4. Опубликуйте GitHub-релиз и разверните сайт с новым манифестом. Игра проверяет версию при открытии главного меню, сверяет размер и SHA-256 загруженного ZIP и открывает его для установки. Клиент с версией до 1.1.0 нужно один раз обновить через сайт.
 
 ## Локальная проверка
 
