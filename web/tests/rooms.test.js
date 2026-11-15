@@ -5,6 +5,7 @@ import { test } from "node:test";
 import Redis from "ioredis";
 import { WebSocket } from "ws";
 import { createRooms } from "../lib/rooms.js";
+import { upstashCommands } from "../lib/redis-rest.js";
 
 const redisUrl = process.env.BREAKPOINT_TEST_REDIS_URL;
 
@@ -12,28 +13,42 @@ async function client(server) {
   const ws = new WebSocket("ws://127.0.0.1:" + server.address().port + "/api/rooms");
   const records = [];
   ws.on("message", raw => records.push(JSON.parse(raw)));
+  ws.on("close", (code, reason) => records.push({ op: "close", code, reason: reason.toString() }));
   await once(ws, "open");
   return {
     ws, records,
     send(record) { ws.send(JSON.stringify(record)); },
     async read(op, predicate = () => true) {
-      const end = Date.now() + 1800;
+      const end = Date.now() + 10000;
       do {
         const offset = records.findIndex(record => record.op === op && predicate(record));
         if (offset !== -1) return records.splice(offset, 1)[0];
         await new Promise(resolve => setTimeout(resolve, 12));
       } while (Date.now() < end);
-      assert.fail("Missing " + op);
+      assert.fail("Missing " + op + " • " + JSON.stringify(records.map(({ op, code, reason, message }) => ({ op, code, reason, message }))));
     },
   };
 }
 
 test("Redis routes a room across Vercel instances and replays lost destruction after resume", {
-  skip: !redisUrl, timeout: 12000,
+  skip: !redisUrl, timeout: 45000,
 }, async () => {
   const namespace = "breakpoint:qa:" + randomUUID();
-  const redis = [new Redis(redisUrl), new Redis(redisUrl)];
-  const instances = redis.map(db => createRooms({ redis: db, namespace }));
+  const redis = [new Redis(redisUrl, { commandTimeout: 6000 }), new Redis(redisUrl, { commandTimeout: 6000 })];
+  if (process.env.BREAKPOINT_TEST_TRACE === "1") {
+    for (const [index, db] of redis.entries()) {
+      const run = db.sendCommand.bind(db);
+      db.sendCommand = (command, ...args) => {
+        const begin = Date.now();
+        const pending = run(command, ...args);
+        pending.then(() => console.log(index, command.name, Date.now() - begin, "ms"),
+          error => console.error(index, command.name, error.message));
+        return pending;
+      };
+    }
+  }
+  const instances = redis.map(db => createRooms({ redis: db, commands: process.env.BREAKPOINT_TEST_TCP === "1" ? db : upstashCommands(redisUrl, {}),
+    namespace, onError: error => console.error(error.message) }));
   try {
     for (const { server } of instances) {
       server.listen(0, "127.0.0.1");
@@ -60,7 +75,7 @@ test("Redis routes a room across Vercel instances and replays lost destruction a
     guest.ws.terminate();
 
     host.send({ op: "frame", sequence: 2, payload: '{"k":"vox","id":43}' });
-    host.send({ op: "frame", payload: '{"k":"pose","s":44}' });
+    host.send({ op: "frame", reliable: false, payload: '{"k":"pose","s":44}' });
     host.send({ op: "frame", sequence: 3, payload: '{"k":"gone","id":45}' });
     await host.read("ack", ack => ack.sequence === 3);
     const other = await client(first);

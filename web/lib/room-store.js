@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 // Redis keeps the room and the recent reliable frames together across instances.
 const update = String.raw`
 local key, stream, topic = KEYS[1], KEYS[2], KEYS[3]
@@ -6,15 +8,28 @@ local raw = redis.call('GET', key)
 local room = raw and cjson.decode(raw) or nil
 local function answer(value) return cjson.encode(value) end
 local function save(kind)
+    if kind then room.revision = (room.revision or 0) + 1 end
     redis.call('SET', key, answer(room), 'PX', room.expires - now)
-    if kind then redis.call('PUBLISH', topic, answer({op=kind})) end
+    if kind then
+        local members = {}
+        for memberId, _ in pairs(room.peers) do table.insert(members, tonumber(memberId)) end
+        table.sort(members)
+        redis.call('PUBLISH', topic, answer({op=kind, rules=room.rules, members=members,
+            started=room.started, revision=room.revision}))
+    end
 end
 local function finish()
     redis.call('DEL', key, stream)
     redis.call('PUBLISH', topic, '{"op":"ended"}')
 end
 if op == 'create' then
-    if room then return answer({error='collision'}) end
+    if room then
+        local host = room.peers['1']
+        if host and host.token == token and host.lease == lease then
+            return answer({room=room,id=1})
+        end
+        return answer({error='collision'})
+    end
     room = cjson.decode(ARGV[6])
     room.peers = {['1']={token=token, lease=lease, deadline=now+50000, seen=0}}
     save(nil)
@@ -27,6 +42,9 @@ if op == 'join' then
     if room.started then return answer({error='full'}) end
     local count = 0
     for otherId, other in pairs(room.peers) do
+        if other.token == token and other.lease == lease and other.deadline >= now then
+            return answer({room=room,id=tonumber(otherId)})
+        end
         if other.deadline < now then
             if otherId == '1' then finish(); return answer({error='missing'}) end
             room.peers[otherId] = nil
@@ -72,7 +90,8 @@ elseif op == 'leave' then
     if room.started or id == '1' then finish()
     else room.peers[id] = nil; save('state') end
 elseif op == 'start' then
-    if id ~= '1' or room.started then return answer({ok=true}) end
+    if id ~= '1' then return answer({ok=true}) end
+    if room.started then return answer({room=room}) end
     local count = 0
     for _, other in pairs(room.peers) do
         if other.deadline < now then return answer({error='full'}) end
@@ -82,6 +101,7 @@ elseif op == 'start' then
     room.started = true
     room.expires = now + 21600000
     save('state')
+    return answer({room=room})
 elseif op == 'frame' then
     if not room.started then return answer({error='missing'}) end
     local sequence = tonumber(ARGV[6])
@@ -112,11 +132,12 @@ else return answer({error='missing'}) end
 return answer({ok=true})
 `;
 
+const scriptId = createHash("sha1").update(update).digest("hex");
+
 export class RoomStore {
   constructor(db, namespace = "breakpoint:rooms:v1") {
     this.db = db;
     this.namespace = namespace;
-    this.db.defineCommand("updateBreakpointRoom", { numberOfKeys: 3, lua: update });
   }
 
   keys(code) {
@@ -124,15 +145,37 @@ export class RoomStore {
     return [key, key + ":journal", key + ":events"];
   }
 
+  async retry(operation, perform) {
+    try {
+      return await perform();
+    } catch (error) {
+      if (error.name !== "TimeoutError" && error.message !== "Command timed out"
+          && error.message !== "fetch failed") throw error;
+      try {
+        return await perform();
+      } catch (retryError) {
+        throw new Error("Redis " + operation + " failed after retry", { cause: retryError });
+      }
+    }
+  }
+
   async run(code, op, client, arg = "", payload = "") {
-    return JSON.parse(await this.db.updateBreakpointRoom(
-      ...this.keys(code), op, Date.now(), client.id ?? "",
-      client.token ?? "", client.lease ?? "", arg, payload,
-    ));
+    return this.retry(op, async () => {
+      const args = [3, ...this.keys(code), op, Date.now(), client.id ?? "",
+        client.token ?? "", client.lease ?? "", arg, payload];
+      let reply;
+      try {
+        reply = await this.db.evalsha(scriptId, ...args);
+      } catch (error) {
+        if (!error.message.includes("NOSCRIPT")) throw error;
+        reply = await this.db.eval(update, ...args);
+      }
+      return JSON.parse(reply);
+    });
   }
 
   async get(code) {
-    const value = await this.db.get(this.keys(code)[0]);
+    const value = await this.retry("get", () => this.db.get(this.keys(code)[0]));
     return value ? JSON.parse(value) : null;
   }
 
@@ -140,11 +183,11 @@ export class RoomStore {
     const key = this.keys(code)[1];
     // If history was trimmed, terminating is safer than reviving a desynchronised map.
     if (cursor !== "0-0") {
-      const first = (await this.db.xrange(key, "-", "+", "COUNT", 1))[0];
+      const first = (await this.retry("history start", () => this.db.xrange(key, "-", "+", "COUNT", 1)))[0];
       if (first && compareCursor(first[0], cursor) > 0) return false;
     }
     for (let batch = 0; batch < 16; batch++) {
-      const events = await this.db.xrange(key, "(" + cursor, "+", "COUNT", 32);
+      const events = await this.retry("replay", () => this.db.xrange(key, "(" + cursor, "+", "COUNT", 32));
       for (const [id, [, value]] of events) {
         if (!visit({ ...JSON.parse(value), cursor: id })) return false;
         cursor = id;

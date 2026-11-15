@@ -33,10 +33,10 @@ function fail(ws, message, code = 1008) {
   ws.close(code);
 }
 
-export function createRooms({ redis, namespace, rotateMs = 245_000 } = {}) {
+export function createRooms({ redis, commands = redis, namespace, rotateMs = 245_000, onError = () => {} } = {}) {
   const server = createServer(async (_req, res) => {
     let healthy = false;
-    try { healthy = Boolean(redis) && await redis.ping() === "PONG"; } catch {}
+    try { healthy = Boolean(redis) && await commands.ping() === "PONG"; } catch {}
     res.writeHead(healthy ? 200 : 503, { "Content-Type": "application/json", "Cache-Control": "no-store" });
     res.end(JSON.stringify({ ready: healthy, protocol: VERSION, resume: true }));
   });
@@ -44,7 +44,7 @@ export function createRooms({ redis, namespace, rotateMs = 245_000 } = {}) {
     server, maxPayload: MAX_FRAME, perMessageDeflate: false,
   });
 
-  const store = redis && new RoomStore(redis, namespace);
+  const store = redis && new RoomStore(commands, namespace);
   const subscriber = redis?.duplicate();
   // One subscription per active room on this Function instance.
   const rooms = new Map();
@@ -61,6 +61,17 @@ export function createRooms({ redis, namespace, rotateMs = 245_000 } = {}) {
       media: frame.media, cursor: frame.cursor }, Boolean(frame.cursor)) || !frame.cursor;
   }
 
+  function sendState(ws, state, operation, seen) {
+    if (operation === undefined && (ws.revision ?? -1) >= state.revision) return true;
+    ws.revision = state.revision;
+    ws.started = state.started;
+    ws.members = state.members;
+    const op = operation ?? (state.started ? "start" : "lobby");
+    const { id, code, token } = ws.session;
+    return send(ws, { op, id, code, token, started: state.started, seen,
+      rules: state.rules, members: state.members });
+  }
+
   function publishState(ws, room, operation) {
     const client = ws.session;
     if (!room || !room.peers[String(client.id)]) {
@@ -71,12 +82,10 @@ export function createRooms({ redis, namespace, rotateMs = 245_000 } = {}) {
       ws.close(1000, "replaced");
       return false;
     }
-    const op = operation ?? (room.started ? "start" : "lobby");
-    if (op === "start" && ws.started) return true;
-    ws.started = room.started;
-    return send(ws, { op, id: client.id, code: client.code, token: client.token,
-      started: room.started, seen: room.peers[String(client.id)].seen, rules: room.rules,
-      members: Object.keys(room.peers).map(Number).sort((a, b) => a - b) });
+    return sendState(ws, {
+      started: room.started, rules: room.rules, revision: room.revision ?? 0,
+      members: Object.keys(room.peers).map(Number).sort((a, b) => a - b),
+    }, operation, room.peers[String(client.id)].seen);
   }
 
   function report(ws, error) {
@@ -87,7 +96,10 @@ export function createRooms({ redis, namespace, rotateMs = 245_000 } = {}) {
   function serialized(ws, operation) {
     ws.queue = ws.queue.then(async () => {
       if (ws.readyState === WebSocket.OPEN) await operation();
-    }).catch(() => ws.close(1013, "temporary failure"));
+    }).catch(error => {
+      onError(error);
+      ws.close(1013, "temporary failure");
+    });
   }
 
   subscriber?.on("message", (topic, raw) => {
@@ -95,7 +107,11 @@ export function createRooms({ redis, namespace, rotateMs = 245_000 } = {}) {
     if (!bucket) return;
     const data = JSON.parse(raw);
     for (const ws of bucket.clients) {
-      if (data.op === "frame") {
+      if (data.op === "batch") {
+        if (!ws.catchingUp) {
+          for (const frame of data.frames) deliverFrame(ws, frame);
+        }
+      } else if (data.op === "frame") {
         if (ws.catchingUp) {
           if (data.cursor && ws.bufferedFrames.length < 512) ws.bufferedFrames.push(data);
           else if (data.cursor) ws.close(1013, "history backlog");
@@ -105,7 +121,7 @@ export function createRooms({ redis, namespace, rotateMs = 245_000 } = {}) {
       } else if (data.op === "ended") {
         fail(ws, "Комната завершена.");
       } else if (data.op === "state") {
-        serialized(ws, async () => publishState(ws, await store.get(ws.session.code)));
+        serialized(ws, async () => sendState(ws, data));
       }
     }
   });
@@ -146,10 +162,42 @@ export function createRooms({ redis, namespace, rotateMs = 245_000 } = {}) {
     }
   }
 
+  function sendVolatile(ws, msg) {
+    const client = ws.session;
+    const host = client.id === 1;
+    const author = host && ws.members.includes(msg.author) ? msg.author : client.id;
+    const to = host && Number.isSafeInteger(msg.to) ? msg.to : (host ? -1 : 1);
+    const skip = host && Number.isSafeInteger(msg.skip) ? msg.skip : -1;
+    const kind = msg.payload.match(/"k"\s*:\s*"([a-z_]+)"/)?.[1] ?? "";
+    const key = author + ":" + kind;
+    if (ws.volatile.size < 24 || ws.volatile.has(key)) {
+      ws.volatile.set(key, { op: "frame", author, to, skip, sender: client.id, media: false,
+        payload: msg.payload });
+    }
+    if (ws.volatileSending) return;
+    ws.volatileSending = true;
+    void (async () => {
+      try {
+        const topic = store.keys(client.code)[2];
+        while (ws.readyState === WebSocket.OPEN && ws.volatile.size) {
+          const batch = [...ws.volatile.values()];
+          ws.volatile.clear();
+          await commands.publish(topic, JSON.stringify({ op: "batch", frames: batch }));
+        }
+      } catch (error) {
+        ws.volatile.clear();
+        onError(error);
+      } finally {
+        ws.volatileSending = false;
+      }
+    })();
+  }
+
   sockets.on("connection", (ws, request) => {
     if (!store) return fail(ws, "Хранилище комнат не подключено.");
     if (sockets.clients.size > 512) return fail(ws, "Сервер комнат заполнен.", 1013);
     ws.queue = Promise.resolve();
+    ws.volatile = new Map();
     let messages = 0;
     let credit = 4_200_000;
     let last = Date.now();
@@ -187,6 +235,11 @@ export function createRooms({ redis, namespace, rotateMs = 245_000 } = {}) {
       let msg;
       try { msg = JSON.parse(raw); } catch { return; }
       if (!msg || typeof msg !== "object" || Array.isArray(msg)) return;
+      if (ws.session && ws.started && msg.op === "frame" && msg.reliable === false &&
+          !msg.media && typeof msg.payload === "string" && msg.payload.length <= 65_000) {
+        sendVolatile(ws, msg);
+        return;
+      }
       ++messages;
       serialized(ws, async () => {
         --messages;
@@ -194,7 +247,7 @@ export function createRooms({ redis, namespace, rotateMs = 245_000 } = {}) {
           if (msg.version !== VERSION) return fail(ws, "Обновите игру. Версии протокола различаются.");
           const ip = request.headers["x-vercel-forwarded-for"] ?? request.socket.remoteAddress ?? "unknown";
           const rate = store.namespace + ":open:" + createHash("sha256").update(String(ip)).digest("hex");
-          const limit = await redis.eval("local n=redis.call('INCR',KEYS[1]);if n==1 then redis.call('EXPIRE',KEYS[1],60) end;return n", 1, rate);
+          const limit = await commands.eval("local n=redis.call('INCR',KEYS[1]);if n==1 then redis.call('EXPIRE',KEYS[1],60) end;return n", 1, rate);
           if (limit > 60) return fail(ws, "Слишком много подключений. Повторите через минуту.", 1013);
           const web = msg.web === true;
           const platform = web ? "web" : "desktop";
@@ -238,6 +291,7 @@ export function createRooms({ redis, namespace, rotateMs = 245_000 } = {}) {
         } else if (msg.op === "start") {
           const result = await store.run(client.code, "start", client);
           if (result.error) report(ws, result.error);
+          else if (result.room) publishState(ws, result.room);
         } else if (msg.op === "frame" && ws.started && typeof msg.payload === "string" &&
             msg.payload.length <= 2_000_000 && (!msg.media || msg.payload.length <= 45_000)) {
           const sequence = Number.isSafeInteger(msg.sequence) && msg.sequence > 0 ? msg.sequence : 0;

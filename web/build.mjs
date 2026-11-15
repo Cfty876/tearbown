@@ -28,7 +28,9 @@ function publicUrl(name, scheme) {
 }
 
 const config = {
-  relay: publicUrl("BREAKPOINT_RELAY_URL", "wss:"),
+  relay: publicUrl("BREAKPOINT_RELAY_URL", "wss:")
+    || (process.env.BREAKPOINT_USE_VERCEL_ROOMS === "1" && process.env.VERCEL_URL
+      ? "wss://" + process.env.VERCEL_URL + "/api/rooms" : ""),
   windows: publicUrl("BREAKPOINT_WINDOWS_URL", "https:"),
   macos: publicUrl("BREAKPOINT_MACOS_URL", "https:"),
 };
