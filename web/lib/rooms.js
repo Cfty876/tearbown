@@ -208,10 +208,11 @@ export function createRooms({ redis, commands = redis, namespace, rotateMs = 245
     const presence = setInterval(() => {
       if (!ws.session) return;
       serialized(ws, async () => {
-        const result = await store.run(ws.session.code, "touch", ws.session);
+        const result = await store.run(ws.session.code, "touch", ws.session, ws.revision ?? -1);
         if (result.error) report(ws, result.error);
+        else if (result.state) sendState(ws, result.state);
       });
-    }, 10_000);
+    }, 6000);
     ws.on("error", () => ws.terminate());
     ws.on("close", () => {
       clearInterval(presence);

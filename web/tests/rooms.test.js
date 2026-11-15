@@ -47,6 +47,22 @@ test("Redis routes a room across Vercel instances and replays lost destruction a
       };
     }
   }
+  if (!upstashCommands(redisUrl, {})) {
+    const duplicate = redis[0].duplicate.bind(redis[0]);
+    redis[0].duplicate = () => {
+      const subscriber = duplicate();
+      const emit = subscriber.emit.bind(subscriber);
+      subscriber.emit = (event, ...args) => {
+        // Simulate losing the lobby update on the host's subscription.
+        if (event === "message") {
+          const frame = JSON.parse(args[1]);
+          if (frame.op === "state" && !frame.started) return false;
+        }
+        return emit(event, ...args);
+      };
+      return subscriber;
+    };
+  }
   const instances = redis.map(db => createRooms({ redis: db, commands: process.env.BREAKPOINT_TEST_TCP === "1" ? db : upstashCommands(redisUrl, {}),
     namespace, onError: error => console.error(error.message) }));
   try {

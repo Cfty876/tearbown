@@ -7,16 +7,17 @@ local op, now, id, token, lease = ARGV[1], tonumber(ARGV[2]), ARGV[3], ARGV[4], 
 local raw = redis.call('GET', key)
 local room = raw and cjson.decode(raw) or nil
 local function answer(value) return cjson.encode(value) end
-local function save(kind)
-    if kind then room.revision = (room.revision or 0) + 1 end
+local function publicState()
+    local members = {}
+    for memberId, _ in pairs(room.peers) do table.insert(members, tonumber(memberId)) end
+    table.sort(members)
+    return {op='state', rules=room.rules, members=members,
+        started=room.started, revision=room.revision or 0}
+end
+local function save(notify)
+    if notify then room.revision = (room.revision or 0) + 1 end
     redis.call('SET', key, answer(room), 'PX', room.expires - now)
-    if kind then
-        local members = {}
-        for memberId, _ in pairs(room.peers) do table.insert(members, tonumber(memberId)) end
-        table.sort(members)
-        redis.call('PUBLISH', topic, answer({op=kind, rules=room.rules, members=members,
-            started=room.started, revision=room.revision}))
-    end
+    if notify then redis.call('PUBLISH', topic, answer(publicState())) end
 end
 local function finish()
     redis.call('DEL', key, stream)
@@ -54,7 +55,7 @@ if op == 'join' then
     id = tostring(room.next)
     room.next = room.next + 1
     room.peers[id] = {token=token, lease=lease, deadline=now+50000, seen=0}
-    save('state')
+    save(true)
     return answer({room=room,id=tonumber(id)})
 end
 if not peer or peer.token ~= token or peer.deadline < now then return answer({error='missing'}) end
@@ -85,10 +86,11 @@ if op == 'touch' then
             changed = true
         end
     end
-    save(changed and 'state' or nil)
+    save(changed)
+    if (room.revision or 0) > tonumber(ARGV[6]) then return answer({state=publicState()}) end
 elseif op == 'leave' then
     if room.started or id == '1' then finish()
-    else room.peers[id] = nil; save('state') end
+    else room.peers[id] = nil; save(true) end
 elseif op == 'start' then
     if id ~= '1' then return answer({ok=true}) end
     if room.started then return answer({room=room}) end
@@ -100,7 +102,7 @@ elseif op == 'start' then
     if count ~= room.limit then return answer({error='full'}) end
     room.started = true
     room.expires = now + 21600000
-    save('state')
+    save(true)
     return answer({room=room})
 elseif op == 'frame' then
     if not room.started then return answer({error='missing'}) end
