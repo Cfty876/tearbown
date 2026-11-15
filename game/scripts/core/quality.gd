@@ -7,7 +7,8 @@ const HEIGHTS := [648.0, 720.0, 864.0, 1080.0]
 
 
 static func apply(level: int, env: Environment, sun: DirectionalLight3D, vp: Viewport) -> void:
-	var forward_plus := RenderingServer.get_current_rendering_method() == "forward_plus"
+	var renderer := RenderingServer.get_current_rendering_method()
+	var forward_plus := renderer == "forward_plus"
 	env.ssao_enabled = forward_plus and level >= MEDIUM
 	env.ssil_enabled = forward_plus and level >= HIGH
 	env.ssr_enabled = forward_plus and level >= ULTRA
@@ -21,14 +22,14 @@ static func apply(level: int, env: Environment, sun: DirectionalLight3D, vp: Vie
 	RenderingServer.directional_shadow_atlas_set_size([1024, 2048, 3072, 4096][level], true)
 	RenderingServer.directional_soft_shadow_filter_set_quality([1, 1, 2, 3][level] as RenderingServer.ShadowQuality)
 	vp.use_taa = forward_plus and level >= HIGH
-	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED if vp.use_taa or web else Viewport.SCREEN_SPACE_AA_FXAA
+	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED if vp.use_taa or web or renderer == "gl_compatibility" else Viewport.SCREEN_SPACE_AA_FXAA
 	vp.msaa_3d = Viewport.MSAA_DISABLED
 	apply_resolution(level, vp)
 	if env.ssao_enabled:
 		RenderingServer.environment_set_ssao_quality([0, 1, 2, 3][level] as RenderingServer.EnvironmentSSAOQuality, true, 0.5, 2, 50.0, 300.0)
 
 
-static func apply_resolution(level: int, vp: Viewport) -> void:
+static func apply_resolution(level: int, vp: Viewport, factor := 1.0) -> void:
 	var height := float((vp as Window).size.y) if vp is Window else vp.get_visible_rect().size.y
 	var max_height: float = [360.0, 540.0, 648.0, 720.0][level] if OS.has_feature("web") else HEIGHTS[level]
-	vp.scaling_3d_scale = minf(1.0, max_height / maxf(height, 1.0))
+	vp.scaling_3d_scale = minf(1.0, max_height / maxf(height, 1.0)) * factor

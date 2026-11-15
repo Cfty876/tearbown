@@ -1,0 +1,8 @@
+services:
+  relay:
+    build: .
+    environment:
+      BIND: "127.0.0.1"
+      TRUST_LOCAL_PROXY: "1"
+    network_mode: host
+    restart: unless-stopped

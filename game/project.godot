@@ -14,11 +14,19 @@ config/name="Voxel Teardown Prototype"
 config/description="Fully destructible voxel physics sandbox prototype."
 run/main_scene="res://scenes/menu.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
+boot_splash/bg_color=Color(0.04, 0.06, 0.08, 1)
+boot_splash/image="res://ui/menu_courtyard.png"
+boot_splash/fullsize=true
 
 [autoload]
 
 GameState="*res://scripts/core/game_state.gd"
 WebSession="*res://scripts/core/web_session.gd"
+BotLanguage="*res://scripts/core/bot_language.gd"
+
+[audio]
+
+driver/enable_input=true
 
 [display]
 

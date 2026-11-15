@@ -61,7 +61,7 @@ func _ready() -> void:
 func _define() -> Array:
 	var gy := DistrictLevel.GY
 	return [
-		{"name": "aerial", "title": "Пригород", "dur": 12.0, "fov": 55.0, "keys": [
+		{"name": "aerial", "title": "Дворы Заречья", "dur": 12.0, "fov": 55.0, "keys": [
 			[0.0, Vector3(-95, 55, 95), Vector3(-15, 4, -10)],
 			[6.0, Vector3(-30, 42, 82), Vector3(-5, 4, -15)],
 			[12.0, Vector3(45, 46, 74), Vector3(5, 4, -22)]], "events": []},

@@ -9,6 +9,15 @@ var quality_name := ""
 var _cross: Control
 var _inventory: ToolInventory
 var _hint: Label
+var _interaction_prompt: InteractionPrompt
+var _prompt_object: Node3D
+var _prompt_local := Vector3.ZERO
+var _prompt_message := ""
+var _prompt_needs_aim := false
+var _gadget_label: Label
+var _charge_panel: PanelContainer
+var _charge_meter: ProgressBar
+var _charge_label: Label
 var _stats: Label
 var _help: Label
 var _msg: Label
@@ -23,6 +32,8 @@ var _avg_ms := 0.0
 var _vignette: ColorRect
 var _hp_bg: ColorRect
 var _hp: ColorRect
+var _grab_key := "E"
+var _horn_locator: HornLocator
 
 
 func _ready() -> void:
@@ -62,8 +73,40 @@ func _ready() -> void:
 	_hint.offset_right = 600
 	_hint.modulate = Color(1, 1, 1, 0.75)
 
+	_interaction_prompt = InteractionPrompt.new()
+	root.add_child(_interaction_prompt)
+	_gadget_label = _label(root, 17, HORIZONTAL_ALIGNMENT_LEFT)
+	_gadget_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_gadget_label.offset_left = 30
+	_gadget_label.offset_top = -146
+	_gadget_label.hide()
+
+	_charge_panel = PanelContainer.new()
+	_charge_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_charge_panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	_charge_panel.offset_left = 30
+	_charge_panel.offset_right = 280
+	_charge_panel.offset_top = -121
+	_charge_panel.offset_bottom = -66
+	_charge_panel.add_theme_stylebox_override("panel", MenuStyle.panel(Color("#151b22ec"), Color("#58626c")))
+	root.add_child(_charge_panel)
+	var charge_layout := VBoxContainer.new()
+	charge_layout.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_charge_panel.add_child(charge_layout)
+	_charge_label = _label(charge_layout, 18, HORIZONTAL_ALIGNMENT_LEFT)
+	_charge_meter = ProgressBar.new()
+	_charge_meter.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_charge_meter.max_value = 1.0
+	_charge_meter.step = 0.0
+	_charge_meter.show_percentage = false
+	_charge_meter.custom_minimum_size.y = 7
+	_charge_meter.add_theme_stylebox_override("background", MenuStyle.panel(Color("#313b43"), Color.TRANSPARENT, 3))
+	_charge_meter.add_theme_stylebox_override("fill", MenuStyle.panel(Color("#83d3e5"), Color.TRANSPARENT, 3))
+	charge_layout.add_child(_charge_meter)
+	_charge_panel.hide()
+
 	_stats = _label(root, 14, HORIZONTAL_ALIGNMENT_LEFT)
-	_show_stats = not player.touch_mode
+	_show_stats = false
 	_stats.visible = _show_stats
 	_stats.position = Vector2(14, 10)
 	_help = _label(root, 15, HORIZONTAL_ALIGNMENT_LEFT)
@@ -71,20 +114,42 @@ func _ready() -> void:
 	_help.offset_left = -550
 	_help.offset_right = -18
 	_help.offset_top = 10
-	_help.visible = not player.touch_mode
+	_help.visible = false
 	_help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_help.text = """[F1] справка   [F3] статистика   [F4] качество графики
-WASD — движение, Shift — бег, Ctrl — присесть, Space — прыжок
-ЛКМ — инструмент, E — взять / отпустить, ЛКМ с предметом — бросить
-Удерживай Tab — снаряжение, 1–7 / колесо — быстрый выбор
-Колесо с предметом — дистанция удержания
-F5 — перезапуск карты, F6 — бенчмарк, Esc — пауза"""
+	_refresh_controls()
+	GameState.settings_changed.connect(_refresh_controls)
 	_msg = _label(root, 22, HORIZONTAL_ALIGNMENT_CENTER)
 	_msg.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_msg.offset_top = 120
 	_msg.offset_left = -500
 	_msg.offset_right = 500
 	root.add_child(_inventory)
+	_horn_locator = HornLocator.new()
+	root.add_child(_horn_locator)
+
+
+func show_horn(at: Vector3) -> void:
+	_horn_locator.mark(at)
+	if is_instance_valid(world.gadgets):
+		world.gadgets.map_data.record_horn(at)
+
+
+func clear_horn() -> void:
+	_horn_locator.clear()
+
+
+func _refresh_controls() -> void:
+	_grab_key = GameControls.key_name("grab")
+	_help.text = "%s / %s / %s / %s — движение   ·   %s — бег   ·   %s — прыжок\n%s — присесть   ·   %s — снаряжение   ·   1–9 / колесо — инструмент\nЛКМ — действие   ·   %s — взаимодействие   ·   %s — телепорт\nF11 — экран   ·   Esc — пауза" % [
+		GameControls.key_name("move_forward"), GameControls.key_name("move_left"), GameControls.key_name("move_back"),
+		GameControls.key_name("move_right"), GameControls.key_name("sprint"), GameControls.key_name("jump"),
+		GameControls.key_name("crouch"), GameControls.key_name("tool_inventory"), _grab_key, GameControls.key_name("teleport"),
+	]
+	_help.text += "\n%s — карта   ·   %s — масштаб мини-карты" % [GameControls.key_name("open_map"), GameControls.key_name("map_zoom")]
+	if GameState.level in [GameState.LEVEL_DISTRICT, GameState.LEVEL_SCHOOL]:
+		_help.text += "\n%s — пневматика" % GameControls.key_name("secret_shot")
+		if WebSession.connected and not OS.has_feature("web"):
+			_help.text += "   ·   удерживай %s — голос" % GameControls.key_name("voice_chat")
 
 
 func _label(parent: Control, size: int, align: HorizontalAlignment) -> Label:
@@ -134,31 +199,138 @@ func _process(delta: float) -> void:
 	_hp.size.x = 256.0 * player.health / Player.MAX_HEALTH
 	_hp_bg.visible = player.health < Player.MAX_HEALTH or player.dead
 	_hp_bg.position = Vector2(30, get_viewport().get_visible_rect().size.y - 46)
+	var utility_left := 30.0
+	if is_instance_valid(world.gadgets) and world.gadgets._mini_map.visible:
+		utility_left = world.gadgets._mini_map.get_rect().end.x + 12.0
+	_charge_panel.offset_left = utility_left
+	_charge_panel.offset_right = utility_left + 250.0
+	_gadget_label.offset_left = utility_left
 	_cross.visible = not _inventory.is_open
 	_hint.visible = not _inventory.is_open
+	var charge := player.tools.extinguisher_charge
+	_charge_panel.visible = player.tools.current == PlayerTools.EXTINGUISHER and player.vehicle == null and player.possessed_npc == null and not player.dead and not _inventory.is_open
+	if _charge_panel.visible:
+		_charge_meter.value = charge
+		_charge_label.text = "ДАВЛЕНИЕ  %d%%" % roundi(charge * 100.0) if charge > 0.0 else "УБЕРИ ДЛЯ ЗАПРАВКИ"
+	_update_gadget_status()
+	_interaction_prompt.hide()
 	if _inventory.is_open:
 		return
 	var t := player.tools
-	var hint: String = PlayerTools.HINTS[t.current]
-	if player.vehicle and is_instance_valid(player.vehicle):
-		hint = "%d км/ч   W/S — газ/тормоз, A/D — руль, Space — ручник, E — выйти, мышь — камера" % roundi(absf(player.vehicle.speed) * 3.6)
+	var hint := PlayerTools.hint_for(t.current)
+	if t.current == PlayerTools.BOOMBOX:
+		hint += "   ·   %s — кассеты   ·   %s — поставить" % [GameControls.key_name("cassette_library"), GameControls.key_name("place_boombox")]
+	if player.movement_enabled and not player.dead and not player.vehicle and not player.grabbed and player.possessed_npc == null and not player.clock_locked() and not player.transit_active:
+		_update_object_prompt()
+	else:
+		_prompt_object = null
+	if is_instance_valid(player.possessed_npc):
+		var seat_action := "встать" if player.possessed_npc.seating_camera().is_finite() else "сесть"
+		hint = "%s  ·  %s — %s  ·  %s — выйти" % [SchoolPopulation.ROLES[player.possessed_npc.role],
+			GameControls.key_name("crouch"), seat_action, _grab_key]
+	elif player.vehicle and is_instance_valid(player.vehicle):
+		var exit_hint := "выйти / поставить на колёса" if player.vehicle.tipped() else "выйти"
+		hint = "%d км/ч   ·   %s — %s   ·   мышь — камера" % [roundi(absf(player.vehicle.speed) * 3.6), _grab_key, exit_hint]
 	elif player.grabbed:
-		hint = "держу: %s, %.0f кг — ЛКМ бросить, E отпустить" % [player.grabbed.label, player.grabbed.mass]
+		hint = "Предмет %.0f кг   ·   ЛКМ — бросить   ·   %s — отпустить" % [player.grabbed.mass, _grab_key]
 	else:
 		var hit := player.aim_ray(3.2)
 		if not hit.is_empty() and hit.collider is VoxelObject:
 			var o: VoxelObject = hit.collider
+
 			var vox := o.voxel_at_hit(hit.position, hit.normal)
 			if vox > 0:
 				var mat := VoxMat.material_of(vox)
 				hint += "   |   %s" % VoxMat.NAMES.get(mat, "?")
-				if o.has_node("Vehicle"):
-					hint += ", %.0f кг [E] сесть за руль" % o.mass
-				elif not o.static_mode:
-					hint += ", %.0f кг [E]" % o.mass
+
 	if _hint.text != hint:
 		_hint.text = hint
 	(_cross as Crosshair).grab_hint = player.grabbed != null
+
+
+func _update_object_prompt() -> void:
+	var hit := player.aim_ray(2.65, DistrictSecrets.MASK)
+	var object: Node3D
+	var point := Vector3.ZERO
+	var message := ""
+	var needs_aim := false
+	var placed := world.boombox.pickup_target() if is_instance_valid(world.boombox) else null
+	if is_instance_valid(placed):
+		object = placed
+		point = placed.global_position + Vector3.UP * 0.30
+		message = "%s — отключить и забрать" % _grab_key if world.boombox.on_air() else "%s — подобрать бумбокс" % _grab_key
+		needs_aim = true
+	if message.is_empty() and player.tools.current == PlayerTools.POSSESSOR and player.possessed_npc == null and is_instance_valid(world.population):
+		var npc := world.population.aim_target(player)
+		if npc:
+			object = npc
+			point = npc.global_position + Vector3.UP * (npc._height + 0.23)
+			var role: String = SchoolPopulation.ROLES[npc.role]
+			message = "%s · недоступен" % role if npc.offended or npc.holder >= 0 else "%s · огонь — вселиться" % role
+			needs_aim = true
+	if is_instance_valid(player.hides):
+		var id := player.hides.target()
+		if id >= 0 and message.is_empty():
+			var info: Dictionary = player.hides.spots[id]
+			object = info.building
+			point = player.hides.panel_focus(info)
+			message = player.hides.hint(id)
+	if message.is_empty() and not hit.is_empty():
+		object = hit.collider
+		point = hit.position + hit.normal * 0.045
+		message = world.gadgets.hint(hit) if is_instance_valid(world.gadgets) else ""
+		needs_aim = object.has_meta("gadget_pickup")
+		if message.is_empty() and is_instance_valid(world.secrets):
+			message = world.secrets.hint(hit)
+	if message.is_empty():
+		var solid := player.aim_ray(Player.VEHICLE_RANGE)
+		match player.object_action(solid):
+			"door":
+				var door := solid.collider.get_node("DistrictDoor") as DistrictDoor
+				message = "%s — %s дверь" % [_grab_key, "закрыть" if door.opened else "открыть"]
+			"vehicle":
+				message = "%s — сесть за руль" % _grab_key
+			"vehicle_locked":
+				message = "%s — проверить замок ПАЗа" % _grab_key
+			"grab":
+				message = "%s — взять предмет" % _grab_key
+		if not message.is_empty():
+			object = solid.collider
+			point = solid.position + solid.normal * 0.045
+			needs_aim = true
+	if not message.is_empty() and is_instance_valid(object):
+		if object != _prompt_object:
+			_prompt_object = object
+			_prompt_local = object.to_local(point)
+		_prompt_message = message
+		_prompt_needs_aim = needs_aim
+	elif _prompt_needs_aim:
+		_prompt_object = null
+	elif is_instance_valid(_prompt_object):
+		point = _prompt_object.to_global(_prompt_local)
+		var eye := player.camera.global_position
+		var blocked := world.raycast(eye, point)
+		if eye.distance_squared_to(point) > 8.0 * 8.0 or (not blocked.is_empty() and blocked.collider != _prompt_object):
+			_prompt_object = null
+	if not is_instance_valid(_prompt_object) or (_prompt_object is CollisionObject3D and _prompt_object.collision_layer == 0):
+		return
+	_interaction_prompt.present(_prompt_message)
+	_interaction_prompt.anchor_to(player.camera, _prompt_object.to_global(_prompt_local))
+
+
+func _update_gadget_status() -> void:
+	var gadgets := world.gadgets
+	if not is_instance_valid(gadgets):
+		return
+	var status := ""
+	var tint := Color("#e7dcce")
+	if gadgets.clock_active():
+		status = "Время остановлено · %.1f с" % maxf(0, gadgets.clock_until - Time.get_ticks_msec() * 0.001)
+	elif gadgets.speed_multiplier() > 1.0:
+		status = "Ускорение · %d с" % ceili(gadgets.boost_until[gadgets.local_side] - gadgets.scene_time())
+	_gadget_label.text = status.strip_edges()
+	_gadget_label.modulate = tint
+	_gadget_label.visible = not status.is_empty() and not _inventory.is_open
 
 
 func _update_stats() -> void:

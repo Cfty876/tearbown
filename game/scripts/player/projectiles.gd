@@ -24,6 +24,8 @@ static func rocket_model() -> MeshInstance3D:
 
 class PipeBomb:
 	extends RigidBody3D
+	var source: Player
+	var attack_round := -1
 	var fuse := 3.0
 	var blast_radius := 1.7
 	var blast_power := 6.0
@@ -32,7 +34,12 @@ class PipeBomb:
 
 	func _ready() -> void:
 		collision_layer = Layers.PROJECTILE
-		collision_mask = Layers.STATIC | Layers.DYNAMIC
+		collision_mask = Layers.SOLID | Layers.CLOTH
+		contact_monitor = true
+		max_contacts_reported = 2
+		body_entered.connect(func(body: Node):
+			if body is ToolConstruction.FabricSurface:
+				body.strike())
 		mass = 1.2
 		var s := CollisionShape3D.new()
 		var b := BoxShape3D.new()
@@ -59,13 +66,15 @@ class PipeBomb:
 		if fuse <= 0.0:
 			var p := global_position
 			queue_free()
-			VoxelWorld.instance.explode(p, blast_radius, blast_power)
+			VoxelWorld.instance.explode(p, blast_radius, blast_power, source, attack_round)
 
 
 class Rocket:
 	extends Node3D
 	var velocity := Vector3.ZERO
 	var life := 6.0
+	var source: Player
+	var attack_round := -1
 	var shooter_rid := RID()
 	var blast_radius := 2.2
 	var blast_power := 7.0
@@ -82,8 +91,8 @@ class Rocket:
 		_light.position.z = 0.3
 		add_child(_light)
 		var trail := GPUParticles3D.new()
-		trail.amount = 160
-		trail.lifetime = 2.2
+		trail.amount = 68 if GameState.cinematic_fx else 30
+		trail.lifetime = 1.45 if GameState.cinematic_fx else 0.72
 		trail.local_coords = false
 		trail.position.z = 0.28
 		trail.visibility_aabb = AABB(Vector3(-30, -30, -30), Vector3(60, 60, 60))
@@ -111,16 +120,33 @@ class Rocket:
 		var from := global_position
 		var to := from + velocity * delta
 		var ex: Array[RID] = [shooter_rid]
-		var hit := VoxelWorld.instance.raycast(from, to, Layers.SOLID | Layers.PLAYER, ex)
+		var world := VoxelWorld.instance
+		var mask := Layers.SOLID | Layers.PLAYER | Layers.CLOTH | Layers.SECRET
+		var hit := world.population.trace(from, to, mask, ex) if is_instance_valid(world.population) else world.raycast(from, to, mask, ex)
+		var match_room := world.get_parent().get_node_or_null("NetworkHide") as NetworkHide
+		if is_instance_valid(source):
+			var limit: Vector3 = hit.position if not hit.is_empty() else to
+			var contact := Vector3.INF
+			if is_instance_valid(match_room):
+				contact = match_room.combat_trace(source, from, limit).get("at", Vector3.INF)
+			elif is_instance_valid(source.bot_hunt):
+				contact = source.bot_hunt.combat_trace(from, limit)
+			if contact.is_finite():
+				hit = {"position": contact, "collider": null}
 		if not hit.is_empty() or life <= 0.0:
 			var p: Vector3 = hit.position if not hit.is_empty() else to
+			if not hit.is_empty() and hit.collider is ToolConstruction.FabricSurface:
+				hit.collider.strike()
+			if not hit.is_empty() and is_instance_valid(hit.collider) and is_instance_valid(VoxelWorld.instance.secrets):
+				VoxelWorld.instance.secrets.hit_target(hit)
 			_detach_trail()
 			queue_free()
-			VoxelWorld.instance.explode(p, blast_radius, blast_power)
+			VoxelWorld.instance.explode(p, blast_radius, blast_power, source, attack_round)
 			return
 		global_position = to
 		if velocity.length_squared() > 0.01:
-			look_at(to + velocity, Vector3.UP)
+			var up := Vector3.FORWARD if absf(velocity.normalized().y) > 0.99 else Vector3.UP
+			look_at(to + velocity, up)
 
 	func _detach_trail() -> void:
 		# Let the smoke trail linger after the rocket is gone.

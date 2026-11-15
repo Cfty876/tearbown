@@ -19,7 +19,12 @@ var debris: DebrisSystem
 var fx: Fx
 var sfx: Sfx
 var fire: FireSystem
+var construction: ToolConstruction
 var player: Player
+var secrets: DistrictSecrets
+var gadgets: GameGadgets
+var boombox: Boombox
+var population: SchoolPopulation
 var network_role := 0 # 0 solo, 1 host, 2 replica
 var network_objects := {}
 var network_dirty := {}
@@ -49,6 +54,9 @@ func _ready() -> void:
 	add_child(sfx)
 	fire = FireSystem.new()
 	add_child(fire)
+	construction = ToolConstruction.new()
+	construction.world = self
+	add_child(construction)
 
 
 func _exit_tree() -> void:
@@ -73,7 +81,7 @@ func unregister(o: VoxelObject) -> void:
 	objects.erase(o)
 	_rebuild_queue.erase(o)
 	_pending_explosives.erase(o)
-	if o.network_id > 0:
+	if o.network_id != 0:
 		network_objects.erase(o.network_id)
 		network_dirty.erase(o.network_id)
 		if network_role == 1:
@@ -95,6 +103,9 @@ func dynamic_count() -> int:
 
 
 func _process(delta: float) -> void:
+	if is_instance_valid(gadgets) and gadgets.clock_active():
+		_process_rebuilds()
+		return
 	if limit_distant_physics:
 		_prop_timer -= delta
 		if _prop_timer <= 0.0:
@@ -109,7 +120,9 @@ func _process(delta: float) -> void:
 func update_prop_activity() -> void:
 	var at := player.global_position
 	for o in objects:
-		if o.static_mode or o.held:
+		if o.static_mode or o.held or o.has_node("DistrictDoor"):
+			continue
+		if o.tree_falling and Time.get_ticks_msec() - o.spawn_ms < 5000:
 			continue
 		var limit := 34.0 if o.freeze else 40.0
 		var should_freeze := o.global_position.distance_squared_to(at) > limit * limit
@@ -170,12 +183,68 @@ func raycast(from: Vector3, to: Vector3, mask := Layers.SOLID, exclude: Array[RI
 	return get_world_3d().direct_space_state.intersect_ray(q)
 
 
+## Spread a fracture along the glass plane and keep the frames intact.
+func damage_glass(obj: VoxelObject, at: Vector3, normal: Vector3, shotgun: bool) -> void:
+	if is_instance_valid(secrets) and secrets.protected(obj, at, 1.5):
+		return
+	var impact := Vector3i(obj.to_voxel(at - normal * (VS * 0.4)).floor())
+	var axis := (obj.global_basis.inverse() * normal).abs().max_axis_index()
+	var mark := {"cell": impact, "axis": axis, "hits": 0}
+	for entry in obj.glass_impacts:
+		var previous: Vector3i = entry.cell
+		if entry.axis == axis and absi(previous[axis] - impact[axis]) <= 2 and previous.distance_squared_to(impact) <= 441:
+			mark = entry
+			break
+	if mark.hits == 0:
+		if obj.glass_impacts.size() >= 8:
+			obj.glass_impacts.pop_front()
+		obj.glass_impacts.append(mark)
+	mark.hits += 1
+	var shatter: bool = mark.hits >= 3
+	var radius := 15 if shatter else ((5 if shotgun else 4) + int(mark.hits) - 1)
+	var extent := Vector3i.ONE * radius
+	extent[axis] = 2
+	var center: Vector3i = mark.cell if shatter else impact
+	var minimum := (center - extent).max(Vector3i.ZERO)
+	var maximum := (center + extent).min(obj.volume.get_size() - Vector3i.ONE)
+	var count := 0
+	var tint := Color("#bddcde").srgb_to_linear()
+	for x in range(minimum.x, maximum.x + 1):
+		for y in range(minimum.y, maximum.y + 1):
+			for z in range(minimum.z, maximum.z + 1):
+				var cell := Vector3i(x, y, z)
+				if not shatter and cell.distance_squared_to(impact) > radius * radius:
+					continue
+				if VoxMat.material_of(obj.volume.get_voxel(cell)) != VoxMat.GLASS:
+					continue
+				obj.volume.set_voxel(cell, 0)
+				count += 1
+				if count <= 28 and count % 2 == 0:
+					var shard := obj.voxel_to_world(Vector3(cell) + Vector3.ONE * 0.5)
+					var motion := -normal * randf_range(0.8, 3.5) + Vector3(randf_range(-1, 1), 1.2, randf_range(-1, 1))
+					debris.spawn(shard, tint, 0.045, motion)
+	if shatter:
+		obj.glass_impacts.erase(mark)
+	if count == 0:
+		return
+	if shatter and obj.occluder:
+		obj.occluder.queue_free()
+		obj.occluder = null
+	obj.mark_dirty(minimum, maximum)
+	sfx.play("glass", at, 0.5 if shatter else -3.0, randf_range(0.93, 1.1))
+	geometry_changed.emit(at, radius * VS)
+
+
 # ------------------------------------------------------------------ destruction API
 
-## Local damage (hammer, bullets, torch). Returns removed voxel count.
+## Local damage from impacts and tools. Returns removed voxel count.
 func damage_at(obj: VoxelObject, pos: Vector3, radius: float, power: float, impulse := Vector3.ZERO, debris_chance := 0.15, max_debris := 8) -> int:
 	if not is_instance_valid(obj):
 		return 0
+	if is_instance_valid(secrets) and secrets.protected(obj, pos, radius):
+		return 0
+	if obj.is_tree:
+		obj.tree_hit_dir = impulse if impulse.length_squared() > 0.01 else obj.world_center() - pos
 	var res := obj.carve(pos, radius, power, 0.25, debris_chance, max_debris)
 	var n: int = res.count
 	if n > 0:
@@ -183,15 +252,18 @@ func damage_at(obj: VoxelObject, pos: Vector3, radius: float, power: float, impu
 		fx.dust(pos, _dust_color(res), clampf(n / 30.0, 0.3, 1.5))
 		_break_sound(res, pos, clampf(-16.0 + n * 0.25, -16.0, -2.0))
 		geometry_changed.emit(pos, radius + 0.6)
-	if impulse != Vector3.ZERO and not obj.static_mode and is_instance_valid(obj):
-		if limit_distant_physics:
+	if impulse != Vector3.ZERO and is_instance_valid(obj) and not obj.static_mode and not (obj.tree_falling and obj.freeze):
+		if limit_distant_physics and not obj.has_node("DistrictDoor"):
 			obj.freeze = false
 		obj.apply_impulse(impulse, pos - obj.global_position)
 	return n
 
 
-func explode(pos: Vector3, radius: float, power: float) -> void:
+func explode(pos: Vector3, radius: float, power: float, source: Player = null, attack_round := -1) -> void:
 	if network_role == 2:
+		return
+	var room := get_parent().get_node_or_null("NetworkHide") as NetworkHide
+	if attack_round >= 0 and is_instance_valid(room) and not room.attack_is_current(attack_round):
 		return
 	var t0 := Time.get_ticks_usec()
 	stats.explosions += 1
@@ -203,9 +275,22 @@ func explode(pos: Vector3, radius: float, power: float) -> void:
 		var d := player.global_position.distance_to(pos)
 		player.shake(clampf(radius * 1.6 / maxf(d, 1.0), 0.0, 1.0))
 
+	if is_instance_valid(source):
+		if is_instance_valid(population):
+			population.weapon_blast(pos, radius * 1.8, source)
+		if is_instance_valid(room):
+			room.combat_blast(source, pos, radius * 1.8, attack_round)
+		elif is_instance_valid(source.bot_hunt):
+			source.bot_hunt.combat_blast(pos, radius * 1.8)
+	if is_instance_valid(secrets):
+		secrets.blast(pos, radius)
 	for obj in objects_in_sphere(pos, radius * 1.15):
 		if not is_instance_valid(obj):
 			continue
+		if is_instance_valid(secrets) and secrets.protected(obj, pos, radius):
+			continue
+		if obj.is_tree:
+			obj.tree_hit_dir = obj.world_center() - pos
 		var res := obj.carve(pos, radius, power, 0.45, 0.07, 36)
 		if res.count > 0:
 			_spawn_debris(obj, res, pos, 9.0)
@@ -224,7 +309,7 @@ func explode(pos: Vector3, radius: float, power: float) -> void:
 func _shockwave(pos: Vector3, radius: float, power: float) -> void:
 	var reach := radius * 2.6
 	for obj in objects_in_sphere(pos, reach, Layers.DYNAMIC):
-		if not is_instance_valid(obj) or obj.static_mode:
+		if not is_instance_valid(obj) or obj.static_mode or (obj.tree_falling and obj.freeze):
 			continue
 		var c := obj.world_center()
 		var d := c.distance_to(pos)
@@ -301,11 +386,31 @@ func spawn_island(src: VoxelObject, island: Dictionary) -> void:
 	if fire.has_fire_in(src):
 		fire.transfer(src, obj, off)
 	geometry_changed.emit(obj.world_center(), Vector3(vol.get_size()).length() * VS * 0.5 + 0.5)
-	if count > 2500:
+	if src.is_tree and vol.get_size().y > 20 and off.y < src.volume.get_size().y * 0.55:
+		_tip_tree(src, obj, off.y)
+	elif count > 2500:
 		var c := obj.world_center()
 		sfx.play("collapse", c, clampf(count / 3000.0, 2.0, 14.0), randf_range(0.85, 1.05))
 		fx.dust_cloud(c, clampf(count / 20000.0, 0.7, 3.0))
 	stats.island_max_usec = maxi(stats.island_max_usec, Time.get_ticks_usec() - t0)
+
+
+func _tip_tree(stump: VoxelObject, crown: VoxelObject, cut_height: int) -> void:
+	var size := stump.volume.get_size()
+	var cut := stump.voxel_to_world(Vector3(size.x * 0.5, cut_height + 0.1, size.z * 0.5))
+	var direction := Vector3(stump.tree_hit_dir.x, 0.0, stump.tree_hit_dir.z)
+	if direction.length_squared() < 0.01:
+		direction = stump.global_basis.x
+	TreeFall.begin(self, stump, crown, cut, direction.normalized())
+	sfx.play("tree_fall", cut, -4.0)
+	fx.dust(cut, Color("#bba287"), 0.72)
+
+
+func tree_landed(at: Vector3) -> void:
+	sfx.play("wood_break", at, -0.5, 0.68)
+	sfx.play("thud", at, -1.0, 0.66)
+	fx.dust_cloud(at, 0.62)
+	fx.dust(at + Vector3.UP * 0.4, Color("#89944f"), 0.86)
 
 
 func _island_to_debris(vol: VoxelVolume, xform: Transform3D, vel: Vector3, count: int) -> void:

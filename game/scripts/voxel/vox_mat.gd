@@ -15,6 +15,7 @@ const DIRT := 9
 const ROCK := 10
 const PLASTIC := 11
 const UNBREAKABLE := 12
+const UNBREAKABLE_STRENGTH := 1.0e12
 const EMISSIVE := 13
 
 const F_TRANSPARENT := 1
@@ -44,7 +45,7 @@ const PROPS := {
 	DIRT: [2.5, 1300.0, 0],
 	ROCK: [8.0, 2000.0, 0],
 	PLASTIC: [0.6, 500.0, 0],
-	UNBREAKABLE: [1000000.0, 3000.0, F_ANCHOR],
+	UNBREAKABLE: [UNBREAKABLE_STRENGTH, 3000.0, F_ANCHOR],
 	EMISSIVE: [0.3, 1000.0, 0],
 }
 
@@ -221,6 +222,11 @@ static func setup() -> void:
 			burn_remap[paint_of[m]] = 0
 		paint_remap[char_of[m]] = paint_of[m]
 
+	_swatch("npc_face_shadow", Color("#bc846b"), PLASTIC, P_SMOOTH)
+	_swatch("npc_face_shadow_dark", Color("#734737"), PLASTIC, P_SMOOTH)
+	_swatch("npc_face_lips", Color("#a75d57"), PLASTIC, P_SMOOTH)
+	_swatch("npc_face_lips_dark", Color("#713c3b"), PLASTIC, P_SMOOTH)
+	_swatch("npc_iris_hazel", Color("#7a6541"), PLASTIC, P_SMOOTH)
 	_build_materials()
 
 

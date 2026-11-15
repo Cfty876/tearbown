@@ -8,5 +8,7 @@ reloadable = false
 
 windows.debug.x86_64 = "res://bin/voxcore.dll"
 windows.release.x86_64 = "res://bin/voxcore.dll"
+macos.debug = "res://bin/libvoxcore.dylib"
+macos.release = "res://bin/libvoxcore.dylib"
 web.release.wasm32 = "res://bin/voxcore.wasm"
 web.debug.wasm32 = "res://bin/voxcore.wasm"

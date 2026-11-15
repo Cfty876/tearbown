@@ -1,0 +1,17 @@
+@import url("https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800&family=Inter:wght@400;600;700&display=swap");
+:root { color-scheme: dark; background: #11191d; color: #ede8dd; font-family: Inter, system-ui, sans-serif; }
+[hidden] { display: none !important; }
+body { margin: 0; overflow: hidden; }
+canvas { display: block; width: 100vw; height: 100dvh; outline: none; touch-action: none; }
+.cover {
+  position: fixed; inset: 0; display: grid; align-items: center; padding: clamp(20px, 7vw, 105px);
+  background: linear-gradient(90deg, #10171bef, #10171b55), url("/media/menu_courtyard.png") center / cover;
+}
+.card { width: min(100%, 570px); }
+h1 { margin: .36em 0 .05em; font-family: "Barlow Condensed", sans-serif; font-size: clamp(54px, 10vw, 115px); line-height: .91; }
+p { max-width: 42ch; margin: 22px 0; line-height: 1.62; }
+a { color: #f2be88; }
+button { background: #edb47b; color: #1b180e; border: 0; font: 700 1rem Inter, sans-serif; padding: 14px 20px; cursor: pointer; }
+button:disabled { opacity: .6; cursor: wait; }
+a:focus-visible, button:focus-visible { outline: 3px solid #fff0ba; outline-offset: 5px; }
+progress { display: block; width: min(100%, 460px); margin-top: 20px; accent-color: #edb47b; }

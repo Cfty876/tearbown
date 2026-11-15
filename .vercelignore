@@ -2,3 +2,11 @@
 /native
 /tools
 /docs
+/online-relay
+/.github
+/web/dist
+/web/public
+.env
+.env.*
+.vercel
+node_modules

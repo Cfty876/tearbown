@@ -210,7 +210,7 @@ static func kiosk(seed: int) -> VoxelVolume:
 	v.fill_box(Vector3i(0, 24, 0), Vector3i(40, 26, 22), VoxMat.id("metal_white"))
 	v.fill_box(Vector3i(2, 8, 21), Vector3i(38, 20, 22), VoxMat.id("glass"))
 	v.fill_box(Vector3i(0, 15, 21), Vector3i(40, 24, 22), VoxMat.id("plastic_blue"))
-	VoxelFont.draw(v, "NEWS", Vector3i(9, 23, 22), Vector3i(1, 0, 0), VoxMat.id("sign_glow"))
+	VoxelFont.draw(v, "ПРЕССА", Vector3i(2, 23, 22), Vector3i(1, 0, 0), VoxMat.id("sign_glow"))
 	return v
 
 
@@ -478,7 +478,7 @@ static func flag_pole() -> VoxelVolume:
 	v.fill_box(Vector3i(0, 0, 0), Vector3i(3, 2, 3), VoxMat.id("concrete"))
 	v.fill_box(Vector3i(1, 0, 1), Vector3i(2, 80, 2), VoxMat.id("metal_white"))
 	v.fill_sphere(Vector3(1.5, 80.5, 1.5), 1.2, VoxMat.id("metal_yellow"))
-	DistrictBuildings._us_flag(v, Vector3i(2, 64, 1), 1)
+	DistrictBuildings.russian_flag(v, Vector3i(2, 64, 1), 1)
 	return v
 
 
@@ -572,8 +572,8 @@ static func school_bus(seed: int) -> Dictionary:
 	v.fill_box(Vector3i(12, 15, 2), Vector3i(13, 27, W - 2), g)
 	v.fill_box(Vector3i(14, 4, W - 1), Vector3i(20, 26, W), blk)
 	# Lettering on both sides, readable from outside.
-	VoxelFont.draw(v, "SCHOOL BUS", Vector3i(40, 29, W - 1), Vector3i(1, 0, 0), blk)
-	VoxelFont.draw(v, "SCHOOL BUS", Vector3i(L - 30, 29, 0), Vector3i(-1, 0, 0), blk)
+	VoxelFont.draw(v, "ДЕТИ", Vector3i(41, 29, W - 1), Vector3i(1, 0, 0), blk)
+	VoxelFont.draw(v, "ДЕТИ", Vector3i(L - 29, 29, 0), Vector3i(-1, 0, 0), blk)
 	v.fill_box(Vector3i(0, 8, 3), Vector3i(1, 11, 6), VoxMat.id("lamp"))
 	v.fill_box(Vector3i(0, 8, W - 6), Vector3i(1, 11, W - 3), VoxMat.id("lamp"))
 	v.fill_box(Vector3i(12, 26, 0), Vector3i(13, 29, W), VoxMat.id("metal_red"))

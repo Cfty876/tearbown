@@ -2,16 +2,16 @@ class_name ToolInventory
 extends Control
 
 const ICONS := preload("res://ui/tool_icons.svg")
-const SHORT_NAMES := ["Кувалда", "Дробовик", "Бомба", "Ракетница", "Горелка", "Баллончик", "Огнетуш."]
+const ITEM_COLORS := [Color("#e6c479"), Color("#a9d8e1"), Color("#e1ae93")]
+const SHORT_NAMES := ["Кувалда", "Дробовик", "Бомба", "Ракетница", "Баллончик", "Огнетушитель", "Доска", "Хамелеон", "Гудок", "Резонатор", "Бумбокс"]
 const CATEGORY := ["БЛИЖНИЙ УДАР", "ОГНЕСТРЕЛЬНОЕ", "МЕТАТЕЛЬНОЕ", "ТЯЖЁЛОЕ",
-	"РЕЗКА", "МАРКИРОВКА", "ТУШЕНИЕ"]
+	"МАРКИРОВКА", "ТУШЕНИЕ И ТЯГА", "КОНСТРУКЦИЯ", "МАСКИРОВКА", "СИГНАЛ", "ВСЕЛЕНИЕ", "МУЗЫКА"]
 const TINTS := [Color("#ffcc80"), Color("#f4ac8a"), Color("#ef986a"), Color("#fbad85"),
-	Color("#94d5ec"), Color("#e7d493"), Color("#99dac6")]
+	Color("#94d5ec"), Color("#e7a393"), Color("#e7d493"), Color("#99dac6"), Color("#decfa0"), Color("#87e1cb"), Color("#b9cfed")]
+const GADGET_NAMES := ["Флешка", "Коктейль", "Газировка", "Часы"]
 const IVORY := Color("#f4e9d6")
 const MUTED := Color("#a8adb0")
 const SLATE := Color("#171d20")
-const SLOT := Vector2(112, 84)
-const SLOT_STEP := 120.0
 const INNER := 116.0
 const OUTER := 258.0
 const DEAD_ZONE := 34.0
@@ -23,19 +23,18 @@ var _current := 0
 var _pointer := Vector2.ZERO
 var _touch_open := false
 var _icons: Array[AtlasTexture] = []
+var _gadget_icons: Array[ImageTexture] = []
+var _item_icons: Array[AtlasTexture] = []
+var _carried: Array[int] = []
+var _has_item_slot := false
 var _font: Font
 var _slot: StyleBoxFlat
 var _selected: StyleBoxFlat
 var _plate: StyleBoxFlat
 var _wheel_tween: Tween
-var _bar_tween: Tween
 var _wheel_amount := 0.0:
 	set(value):
 		_wheel_amount = value
-		queue_redraw()
-var _bar_marker := 0.0:
-	set(value):
-		_bar_marker = value
 		queue_redraw()
 
 
@@ -51,9 +50,16 @@ func _ready() -> void:
 		icon.region = Rect2(i * 64, 0, 64, 64)
 		icon.filter_clip = true
 		_icons.append(icon)
+	_gadget_icons = GadgetIcons.build()
+	for i in SchoolTraps.CARRIED_ITEMS.size():
+		var icon := AtlasTexture.new()
+		icon.atlas = ICONS
+		icon.region = Rect2((PlayerTools.NAMES.size() + i) * 64, 0, 64, 64)
+		icon.filter_clip = true
+		_item_icons.append(icon)
 	_current = player.tools.current
-	_bar_marker = float(_current)
 	player.tools.selection_changed.connect(_select)
+	player.tools.slots_changed.connect(_refresh_slots)
 	resized.connect(queue_redraw)
 
 
@@ -62,9 +68,18 @@ func _process(_delta: float) -> void:
 		return
 	if is_open and (not _can_open() or (not _touch_open and not Input.is_action_pressed("tool_inventory"))):
 		_close(false)
-	var show_strip := player.vehicle == null and not player.dead
+	var show_strip := player.vehicle == null and not player.dead and not player.navigation_menu_open
 	if visible != show_strip:
 		visible = show_strip
+	var world := VoxelWorld.instance
+	var school := is_instance_valid(world) and world.secrets is SchoolSecrets and is_instance_valid(world.secrets.traps)
+	var carried: Array[int] = []
+	if school:
+		carried = world.secrets.traps.carried_items(world.secrets.local_side)
+	if _has_item_slot != school or _carried != carried:
+		_has_item_slot = school
+		_carried = carried
+		queue_redraw()
 
 
 func _notification(what: int) -> void:
@@ -75,7 +90,7 @@ func _notification(what: int) -> void:
 func _can_open() -> bool:
 	return (
 		is_visible_in_tree() and is_instance_valid(player) and player.vehicle == null
-		and not player.dead and player.grabbed == null and player.tools.input_enabled
+		and not player.dead and not player.navigation_menu_open and player.grabbed == null and player.possessed_npc == null and player.tools.input_enabled
 		and (Input.mouse_mode == Input.MOUSE_MODE_CAPTURED or player.touch_mode)
 	)
 
@@ -93,7 +108,7 @@ func _input(event: InputEvent) -> void:
 			var local := get_global_transform_with_canvas().affine_inverse() * touch.position
 			var relative := (local - _wheel_center()) / _wheel_scale()
 			if relative.length() >= INNER and relative.length() <= OUTER + 25.0:
-				_preview = posmod(roundi((relative.angle() + PI * 0.5) / _segment_angle()), _icons.size())
+				_preview = _from_slot(roundi((relative.angle() + PI * 0.5) / _segment_angle()))
 				_close(true)
 			else:
 				_close(false)
@@ -107,15 +122,15 @@ func _input(event: InputEvent) -> void:
 		_pointer = (_pointer + event.relative).limit_length(330.0)
 		if _pointer.length_squared() > DEAD_ZONE * DEAD_ZONE:
 			var angle := _pointer.angle() + PI * 0.5
-			_preview = posmod(roundi(angle / _segment_angle()), _icons.size())
+			_preview = _from_slot(roundi(angle / _segment_angle()))
 		queue_redraw()
 	elif event is InputEventMouseButton and event.pressed:
 		match event.button_index:
 			MOUSE_BUTTON_RIGHT: _close(false)
-			MOUSE_BUTTON_WHEEL_UP: _preview_slot(_preview - 1)
-			MOUSE_BUTTON_WHEEL_DOWN: _preview_slot(_preview + 1)
+			MOUSE_BUTTON_WHEEL_UP: _preview_slot(_from_slot(player.tools.tool_slots().find(_preview) - 1))
+			MOUSE_BUTTON_WHEEL_DOWN: _preview_slot(_from_slot(player.tools.tool_slots().find(_preview) + 1))
 	elif event is InputEventKey:
-		for i in _icons.size():
+		for i in range(PlayerTools.GADGET_START):
 			if event.is_action_pressed("tool_%d" % (i + 1)):
 				_preview_slot(i)
 				break
@@ -138,7 +153,7 @@ func _open(by_touch: bool) -> void:
 
 
 func _preview_slot(index: int) -> void:
-	_preview = posmod(index, _icons.size())
+	_preview = index if index in player.tools.tool_slots() else _current
 	_pointer = Vector2.ZERO
 	queue_redraw()
 
@@ -163,82 +178,129 @@ func _animate_wheel(goal: float, seconds: float) -> void:
 
 func _select(index: int) -> void:
 	_current = index
-	if _bar_tween:
-		_bar_tween.kill()
-	_bar_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_bar_tween.tween_property(self, "_bar_marker", float(index), 0.17)
+	queue_redraw()
+
+
+func _refresh_slots() -> void:
+	if _preview not in player.tools.tool_slots():
+		_preview = player.tools.current
 	queue_redraw()
 
 
 func _draw() -> void:
+	if is_instance_valid(player) and is_instance_valid(player.possessed_npc):
+		_draw_carried(false)
+		return
 	if _icons.is_empty():
 		return
 	if player.touch_mode:
 		if _wheel_amount < 0.05:
 			var area := Rect2(size.x * 0.5 - 124.0, 20.0, 248.0, 56.0)
 			draw_style_box(_plate, area)
-			_icon(_current, area.position + Vector2(33, 28), 49.0, TINTS[_current])
-			_text(SHORT_NAMES[_current], Rect2(area.position + Vector2(59, 8), Vector2(178, 38)),
-				23, IVORY, HORIZONTAL_ALIGNMENT_LEFT)
+			_icon(_current, area.position + Vector2(33, 28), 49.0, _tint(_current))
+			_text(_short_name(_current), Rect2(area.position + Vector2(59, 8), Vector2(145, 38)),
+				21, IVORY, HORIZONTAL_ALIGNMENT_LEFT)
+			if PlayerTools.is_gadget(_current):
+				_text(_amount(_current), Rect2(area.position + Vector2(206, 8), Vector2(33, 38)), 15, _tint(_current))
 	else:
-		_draw_strip()
+		if _wheel_amount < 0.1:
+			_draw_loadout()
 	if _wheel_amount > 0.002:
 		_draw_wheel()
+	_draw_carried(_wheel_amount > 0.1)
 
 
-func _draw_strip() -> void:
-	var width := SLOT_STEP * _icons.size() - (SLOT_STEP - SLOT.x)
-	var zoom := minf(1.0, size.x / (width + 52.0))
-	var origin := Vector2(size.x * 0.5 - width * zoom * 0.5, size.y - 126.0)
-	draw_set_transform(origin, 0.0, Vector2.ONE * zoom)
-	for i in _icons.size():
-		var at := Vector2(i * SLOT_STEP, 0)
-		var active := i == _current
-		var accent: Color = TINTS[i] if active else MUTED
-		draw_style_box(_selected if active else _slot, Rect2(at, SLOT))
-		_text(str(i + 1), Rect2(at + Vector2(9, 8), Vector2(18, 20)), 17, accent)
-		_icon(i, at + Vector2(SLOT.x * 0.5, 33), 54.0, accent)
-		_text(SHORT_NAMES[i], Rect2(at + Vector2(3, 60), Vector2(SLOT.x - 6, 19)), 17,
-			IVORY if active else MUTED)
-	var marker := Vector2(_bar_marker * SLOT_STEP + 19.0, SLOT.y - 3.0)
-	draw_rect(Rect2(marker, Vector2(SLOT.x - 38, 2)), TINTS[_current])
-	_text("TAB  ·  СНАРЯЖЕНИЕ", Rect2(Vector2(width - 230, -27), Vector2(230, 19)),
-		15, Color("#f6dfba"), HORIZONTAL_ALIGNMENT_RIGHT)
-	draw_set_transform(Vector2.ZERO)
+func _draw_carried(expanded: bool) -> void:
+	if not _has_item_slot or (_carried.is_empty() and not expanded):
+		return
+	var panel_size := Vector2(235, 53)
+	var at := Vector2(size.x - 266.0, size.y - 201.0)
+	if player.touch_mode:
+		at = Vector2(26, 106)
+	if expanded:
+		panel_size.y = 52.0 + float(_carried.size()) * 35.0
+		at.y = clampf(size.y * 0.45 - panel_size.y * 0.5, 90.0, size.y - panel_size.y - 45.0)
+	var area := Rect2(at, panel_size)
+	draw_style_box(_slot, area)
+	var title_at := at + Vector2(12, 4)
+	_text("ПРЕДМЕТЫ", Rect2(title_at, Vector2(209, 22)), 12, Color("#b8cacc"), HORIZONTAL_ALIGNMENT_LEFT)
+	if expanded:
+		if _carried.is_empty():
+			_text("Слот пуст", Rect2(at + Vector2(12, 23), Vector2(209, 22)), 15, MUTED, HORIZONTAL_ALIGNMENT_LEFT)
+		for i in _carried.size():
+			var item := _carried[i]
+			var row := at + Vector2(11, 27 + i * 35)
+			draw_texture_rect(_item_icons[item], Rect2(row, Vector2(29, 29)), false, ITEM_COLORS[item])
+			_text(SchoolTraps.CARRIED_ITEMS[item], Rect2(row + Vector2(36, 0), Vector2(174, 28)), 15, IVORY, HORIZONTAL_ALIGNMENT_LEFT)
+	else:
+		for i in _carried.size():
+			var item := _carried[i]
+			draw_texture_rect(_item_icons[item], Rect2(at + Vector2(11 + i * 32, 23), Vector2(28, 28)), false, ITEM_COLORS[item])
+		var description: String = SchoolTraps.CARRIED_ITEMS[_carried[0]] if _carried.size() == 1 else "%d предмета" % _carried.size()
+		var text_x := 15.0 + _carried.size() * 32.0
+		_text(description, Rect2(at + Vector2(text_x, 24), Vector2(222.0 - text_x, 23)), 14, IVORY, HORIZONTAL_ALIGNMENT_LEFT)
+
+
+func _draw_loadout() -> void:
+	var origin := Vector2(size.x - 266.0, size.y - 84.0)
+	_draw_loadout_slot(_current, origin, true)
+	var previous := player.tools.previous
+	if previous in player.tools.tool_slots() and previous != _current:
+		_draw_loadout_slot(previous, origin - Vector2(0, 57), false)
+
+
+func _draw_loadout_slot(index: int, at: Vector2, active: bool) -> void:
+	var color: Color = IVORY if active else MUTED
+	draw_style_box(_selected if active else _slot, Rect2(at, Vector2(235, 52)))
+	_icon(index, at + Vector2(47, 26), 55.0, color)
+	_text(_short_name(index), Rect2(at + Vector2(83, 3), Vector2(137, 29)), 18, color, HORIZONTAL_ALIGNMENT_LEFT)
+	var number := _amount(index) if PlayerTools.is_gadget(index) else player.tools.slot_label(index)
+	_text("%s  /  %s" % [number, "В РУКЕ" if active else "ПРЕДЫДУЩЕЕ"],
+		Rect2(at + Vector2(83, 29), Vector2(144, 19)), 12, _tint(index) if active else MUTED, HORIZONTAL_ALIGNMENT_LEFT)
 
 
 func _draw_wheel() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0.027, 0.033, 0.039, _wheel_amount * 0.74))
 	draw_set_transform(_wheel_center(), 0.0, Vector2.ONE * _wheel_scale())
-	var active: Color = TINTS[_preview]
+	var active := _tint(_preview)
 	draw_circle(Vector2.ZERO, OUTER + 13.0, Color("#0c1114df"), true, -1, true)
 	draw_arc(Vector2.ZERO, OUTER + 12.0, 0.0, TAU, 96, Color("#81909575"), 1.0, true)
-	var half := _segment_angle() * 0.5 - 0.027
-	for i in _icons.size():
+	var slots := player.tools.tool_slots()
+	var half := TAU / slots.size() * 0.5 - 0.027
+	var label_width := minf(136.0, 370.0 * sin(half) - 4.0)
+	for i in slots:
 		var a := _angle(i)
 		var selected := i == _preview
-		var color: Color = TINTS[i]
+		var color := _tint(i)
 		var fill := SLATE.lerp(color, 0.19) if selected else SLATE
 		draw_colored_polygon(_wedge(a - half, a + half), fill)
 		var line := color if selected else Color("#49555c")
 		draw_arc(Vector2.ZERO, OUTER, a - half, a + half, 20, line, 3.0 if selected else 1.0, true)
 		if selected:
 			draw_arc(Vector2.ZERO, INNER + 4, a - half, a + half, 18, color, 1.0, true)
-		var cell := Vector2.from_angle(a) * 185.0
-		_icon(i, cell - Vector2(0, 5), 76.0 if selected else 65.0, color if selected else MUTED)
-		_text(SHORT_NAMES[i], Rect2(cell + Vector2(-68, 28), Vector2(136, 24)), 18, IVORY if selected else MUTED)
-		_text("%02d" % (i + 1), Rect2(cell + Vector2(-68, -49), Vector2(136, 17)), 14, line)
+		var radial := Vector2.from_angle(a)
+		var cell := radial * 185.0
+		var number := _amount(i) if PlayerTools.is_gadget(i) else player.tools.slot_label(i, slots)
+		if slots.size() > 10:
+			_icon(i, radial * 181.0, 70.0 if selected else 60.0, color if selected else MUTED)
+			_text(number, Rect2(radial * 230.0 - Vector2(28, 9), Vector2(56, 18)), 15, line)
+		else:
+			_icon(i, cell - Vector2(0, 5), 76.0 if selected else 65.0, color if selected else MUTED)
+			_text(_short_name(i), Rect2(cell + Vector2(-label_width * 0.5, 27), Vector2(label_width, 24)),
+				18, IVORY if selected else MUTED)
+			_text(number, Rect2(cell + Vector2(-38, -49), Vector2(76, 17)), 14, line)
 	draw_circle(Vector2.ZERO, INNER - 5.0, Color("#10171a"), true, -1, true)
 	draw_arc(Vector2.ZERO, INNER - 5.0, 0.0, TAU, 64, Color("#84909382"), 1.0, true)
 	_icon(_preview, Vector2(0, -23), 102.0, active)
-	_text(CATEGORY[_preview], Rect2(-96, 37, 192, 23), 15, active)
-	_text("%02d  /  %02d" % [_preview + 1, _icons.size()], Rect2(-84, 65, 168, 21), 16, MUTED)
+	var category: String = "ГАДЖЕТ" if PlayerTools.is_gadget(_preview) else CATEGORY[_preview]
+	_text(category, Rect2(-96, 37, 192, 23), 15, active)
+	_text("%02d  /  %02d" % [slots.find(_preview) + 1, slots.size()], Rect2(-84, 65, 168, 21), 16, MUTED)
 	var caret := Vector2.from_angle(_angle(_preview)) * (OUTER + 23.0)
 	draw_circle(caret, 4.0, active, true, -1, true)
 	_text("С Н А Р Я Ж Е Н И Е", Rect2(-215, -331, 430, 34), 23, IVORY)
 	draw_style_box(_plate, Rect2(-260, 293, 520, 100))
-	_text(PlayerTools.NAMES[_preview].to_upper(), Rect2(-244, 307, 488, 33), 24, active)
-	_text(PlayerTools.HINTS[_preview], Rect2(-244, 350, 488, 24), 17, IVORY)
+	_text(PlayerTools.title_for(_preview).to_upper(), Rect2(-244, 307, 488, 33), 24, active)
+	_text(PlayerTools.hint_for(_preview), Rect2(-244, 350, 488, 24), 17, IVORY)
 	var instruction := "КОСНИСЬ СЕКТОРА  ·  ВЫБРАТЬ" if player.touch_mode else "ОТПУСТИ TAB  ·  ВЫБРАТЬ        ESC / ПКМ  ·  ОТМЕНА"
 	_text(instruction, Rect2(-310, 407, 620, 22), 18, MUTED)
 	draw_set_transform(Vector2.ZERO)
@@ -253,11 +315,16 @@ func _wheel_scale() -> float:
 
 
 func _segment_angle() -> float:
-	return TAU / _icons.size()
+	return TAU / player.tools.tool_slots().size()
 
 
 func _angle(i: int) -> float:
-	return _segment_angle() * i - PI * 0.5
+	return _segment_angle() * player.tools.tool_slots().find(i) - PI * 0.5
+
+
+func _from_slot(index: int) -> int:
+	var slots := player.tools.tool_slots()
+	return slots[posmod(index, slots.size())]
 
 
 func _wedge(start: float, end: float) -> PackedVector2Array:
@@ -270,8 +337,24 @@ func _wedge(start: float, end: float) -> PackedVector2Array:
 	return points
 
 
+func _tint(index: int) -> Color:
+	return GameGadgets.TINTS[index - PlayerTools.GADGET_START] if PlayerTools.is_gadget(index) else TINTS[index]
+
+
+func _short_name(index: int) -> String:
+	return GADGET_NAMES[index - PlayerTools.GADGET_START] if PlayerTools.is_gadget(index) else SHORT_NAMES[index]
+
+
+func _amount(index: int) -> String:
+	return "×%d" % player.tools.gadget_charges(index)
+
+
 func _icon(index: int, at: Vector2, extent: float, tint: Color) -> void:
-	draw_texture_rect(_icons[index], Rect2(at - Vector2.ONE * extent * 0.5, Vector2.ONE * extent), false, tint)
+	var area := Rect2(at - Vector2.ONE * extent * 0.5, Vector2.ONE * extent)
+	if PlayerTools.is_gadget(index):
+		draw_texture_rect(_gadget_icons[index - PlayerTools.GADGET_START], area.grow(-extent * 0.12), false)
+	else:
+		draw_texture_rect(_icons[index], area, false, tint)
 
 
 func _text(text: String, box: Rect2, font_size: int, tint: Color, align := HORIZONTAL_ALIGNMENT_CENTER) -> void:

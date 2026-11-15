@@ -1,5 +1,5 @@
 class_name DistrictBuildings
-## Buildings of the American town map. Every builder returns a Dictionary
+## Buildings of Zarechye. Every builder returns a Dictionary
 ## with the voxel volume plus metadata the level uses for decoration
 ## (entrances for benches, lamp voxels for lights, interior box for occlusion).
 ## Volume axes: x along the building, y up, z across; "front" = entrance side.
@@ -22,7 +22,7 @@ const CURTAINS := ["curtain_red", "curtain_green", "curtain_beige"]
 const AWNINGS := ["awning_green", "awning_maroon", "awning_navy"]
 
 
-static func apartment_block(sections: int, seed: int, brick := "brick") -> Dictionary:
+static func apartment_block(sections: int, seed: int, panel := "panel_grey") -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed
 	var L := sections * SEC
@@ -36,12 +36,23 @@ static func apartment_block(sections: int, seed: int, brick := "brick") -> Dicti
 	var stone := VoxMat.id("stone")
 	var lamps: Array[Vector3i] = []
 	var entrances: Array[Vector3] = []
+	var hides: Array[Dictionary] = []
+	var secrets: Array[Dictionary] = []
+	var doors: Array[Dictionary] = []
+	var portals: Array[Vector3] = []
 	var awning := VoxMat.id(AWNINGS[seed % AWNINGS.size()])
 
 	# Stone base, brick walls, slabs, roof, cornice and parapet.
 	_ring(v, x0, z0, x1, z1, 0, PL, T, VoxMat.id("concrete_dark"))
 	v.fill_box_noise(Vector3i(x0 + T, PL - 3, z0 + T), Vector3i(x1 - T, PL, z1 - T), con, seed)
-	_brick_ring(v, x0, z0, x1, z1, PL, top, T, brick, seed)
+	_ring(v, x0, z0, x1, z1, PL, top, T, VoxMat.id(panel))
+	for floor_index in FLOORS:
+		var joint := PL + floor_index * FH
+		_ring(v, x0, z0, x1, z1, joint, joint + 1, 1, VoxMat.id("panel_seam"))
+	for bay in range(1, sections * 5):
+		var seam_x := x0 + bay * BAY
+		for z in [z0, z1 - 1]:
+			v.fill_box(Vector3i(seam_x, PL, z), Vector3i(seam_x + 1, top, z + 1), VoxMat.id("panel_seam"))
 	for f in range(1, FLOORS):
 		var y := PL + f * FH
 		v.fill_box_noise(Vector3i(x0 + T, y - 3, z0 + T), Vector3i(x1 - T, y, z1 - T), con, seed + f)
@@ -49,7 +60,7 @@ static func apartment_block(sections: int, seed: int, brick := "brick") -> Dicti
 	# Belt course above the ground floor and a projecting cornice.
 	_ring(v, x0 - 1, z0 - 1, x1 + 1, z1 + 1, PL + FH - 2, PL + FH, 1, stone)
 	_ring(v, x0 - 2, z0 - 2, x1 + 2, z1 + 2, top, top + 3, 2, stone)
-	_brick_ring(v, x0, z0, x1, z1, top + 3, top + 7, 2, brick, seed + 3)
+	_ring(v, x0, z0, x1, z1, top + 3, top + 7, 2, VoxMat.id(panel))
 	v.fill_box(Vector3i(x0, top + 7, z0), Vector3i(x1, top + 8, z0 + 2), stone)
 	v.fill_box(Vector3i(x0, top + 7, z1 - 2), Vector3i(x1, top + 8, z1), stone)
 
@@ -69,17 +80,34 @@ static func apartment_block(sections: int, seed: int, brick := "brick") -> Dicti
 		var bxc := bx + BAY / 2
 		for f in FLOORS:
 			var fy := PL + f * FH
+			var secret := f == 2 and (s == 0 or s == sections - 1)
 			for b in 5:
 				var x := sx + b * BAY
+				if b != 2:
+					_room_finish(v, x, fy, z0, z1, zm, b, seed + s + f)
 				# Doors through the bearing wall and between rooms.
-				v.fill_box(Vector3i(x + 10, fy, zm), Vector3i(x + 19, fy + 21, zm + 3), 0)
+				var concealed := b == 4 and secret
+				v.fill_box(Vector3i(x + (7 if concealed else 10), fy, zm),
+					Vector3i(x + (23 if concealed else 19), fy + 21, zm + 3), 0)
+				if concealed:
+					secrets.append({"rug": Vector3(x + 15, fy, zm - 1),
+						"shield": Vector3(x + 3, fy + 12, zm + 13),
+						"escape": Vector3(x + 27, fy + 12, zm + 16)})
+				elif b == 4 and (s + f + seed) % 3 == 0:
+					doors.append({"hinge": Vector3(x + 10, fy, zm + 1.0), "yaw": 0.0, "finish": "wood_light"})
 				if b == 1 or b == 4:
 					v.fill_box(Vector3i(x - 1, fy, z0 + 38), Vector3i(x + 1, fy + 21, z0 + 47), 0)
-					v.fill_box(Vector3i(x - 1, fy, zm + 20), Vector3i(x + 1, fy + 21, zm + 29), 0)
+					if not concealed:
+						v.fill_box(Vector3i(x - 1, fy, zm + 20), Vector3i(x + 1, fy + 21, zm + 29), 0)
 			# Apartment doors off the landing.
 			v.fill_box(Vector3i(bx - 1, fy, zi - 11), Vector3i(bx + 1, fy + 21, zi - 2), 0)
 			v.fill_box(Vector3i(bx + BAY - 1, fy, zi - 11), Vector3i(bx + BAY + 1, fy + 21, zi - 2), 0)
+			if (s + f + seed) % 2 == 0:
+				var edge := bx if (s + f) % 2 == 0 else bx + BAY
+				doors.append({"hinge": Vector3(edge + 0.45, fy, zi - 11), "yaw": -PI * 0.5, "finish": "wood_dark"})
+			DistrictInteriors.apartments(v, sx, fy, z0 + T, zm + T, seed + s + f, f > 0, hides, secret)
 		_stairs(v, bx, zf, zi, seed + s)
+		portals.append(Vector3(bxc, 2, zf + 8))
 
 		# Entrance: open wooden door, stone stoop, fabric awning with a lamp.
 		v.fill_box(Vector3i(bxc - 6, 2, z0), Vector3i(bxc + 6, 24, z0 + T), 0)
@@ -87,14 +115,13 @@ static func apartment_block(sections: int, seed: int, brick := "brick") -> Dicti
 		v.fill_planks(Vector3i(bxc - 7, 2, z0 - 7), Vector3i(bxc - 6, 24, z0), 1, 2, 2, VoxMat.ids("wood_dark"), seed)
 		for k in 3:
 			v.fill_box_noise(Vector3i(bxc - 9 + k, 0, z0 - 8 + k * 2), Vector3i(bxc + 9 - k, 2 + k, z0), VoxMat.ids("stone"), seed + k)
-		for k in 4:
-			v.fill_box(Vector3i(bxc - 11, 30 - k, z0 - 3 * (k + 1)), Vector3i(bxc + 11, 31 - k, z0 - 3 * k), awning)
-		v.fill_box(Vector3i(bxc - 11, 25, z0 - 12), Vector3i(bxc + 11, 27, z0 - 11), awning)
+		v.fill_box(Vector3i(bxc - 12, 27, z0 - 12), Vector3i(bxc + 12, 30, z0), stone)
+		v.fill_box(Vector3i(bxc - 12, 27, z0 - 13), Vector3i(bxc + 12, 29, z0 - 12), awning)
 		v.fill_box(Vector3i(bxc - 1, 26, z0 - 1), Vector3i(bxc + 1, 27, z0), VoxMat.id("lamp"))
 		lamps.append(Vector3i(bxc, 26, z0 - 1))
 		entrances.append(Vector3(bxc, 0, z0 - 16))
 		# Street number above the door.
-		var num := str(100 + seed * 20 + s * 2)
+		var num := str(seed * 2) + "-" + str(s + 1)
 		VoxelFont.draw(v, num, Vector3i(bxc + VoxelFont.text_width(num) / 2, 38, z0 - 1), Vector3i(-1, 0, 0), VoxMat.id("sign_glow"))
 
 	# Windows with stone sills and lintels, fire escapes and window AC units.
@@ -102,7 +129,6 @@ static func apartment_block(sections: int, seed: int, brick := "brick") -> Dicti
 		for b in 5:
 			var cx := x0 + s * SEC + b * BAY + BAY / 2
 			var stair := b == 2
-			var escape := b == 1 or (b == 3 and sections > 3 and s % 2 == 1)
 			for f in FLOORS:
 				var fy := PL + f * FH
 				if stair:
@@ -118,10 +144,8 @@ static func apartment_block(sections: int, seed: int, brick := "brick") -> Dicti
 				Build.window(v, 2, z1 - T, T, cx - 6, fy + 6, 12, 17, "pvc", 1)
 				v.fill_box(Vector3i(cx - 7, fy + 23, z1), Vector3i(cx + 7, fy + 24, z1 + 1), stone)
 				_window_life(v, rng, cx - 6, fy + 6, 12, 17, z1 - T)
-				if escape and f >= 1:
-					_fire_escape_level(v, cx, fy, z1)
-				elif f >= 1 and rng.randf() < 0.18:
-					_window_ac(v, cx, fy, z1, 1)
+				if (b == 1 or b == 3) and f >= 1:
+					_balcony(v, cx, fy, z1, seed + s + f)
 				if rng.randf() < 0.03:
 					_dish(v, Vector3i(cx - 11, fy + 18, z1))
 			# Basement vents.
@@ -144,24 +168,57 @@ static func apartment_block(sections: int, seed: int, brick := "brick") -> Dicti
 	var rt := top + 3
 	for s in sections:
 		var bx := x0 + s * SEC + 2 * BAY
-		var brick_ids := VoxMat.ids(brick)
-		v.fill_bricks(Vector3i(bx + 4, rt, zf + 6), Vector3i(bx + 26, rt + 20, zf + 28), 0, 3, 1, brick_ids, -1, seed + s)
+		v.fill_box(Vector3i(bx + 4, rt, zf + 6), Vector3i(bx + 26, rt + 20, zf + 28), VoxMat.id(panel))
 		v.fill_box(Vector3i(bx + 6, rt, zf + 8), Vector3i(bx + 24, rt + 18, zf + 26), 0)
 		v.fill_box(Vector3i(bx + 11, rt, zf + 6), Vector3i(bx + 19, rt + 17, zf + 8), VoxMat.id("door_metal"))
 		v.fill_box_noise(Vector3i(bx + 3, rt + 20, zf + 5), Vector3i(bx + 27, rt + 22, zf + 29), con, seed)
 		for vx in [x0 + s * SEC + 18, x0 + s * SEC + 128]:
 			v.fill_box(Vector3i(vx, rt, zm - 3), Vector3i(vx + 6, rt + 6, zm + 3), VoxMat.id("metal"))
-		for k in 2:
-			var ax := x0 + s * SEC + 40 + k * 60 + rng.randi_range(-10, 10)
-			var az := z0 + rng.randi_range(25, DEPTH - 35)
-			v.fill_box(Vector3i(ax, rt, az), Vector3i(ax + 14, rt + 9, az + 11), VoxMat.id("metal_white"))
-			v.fill_cylinder(Vector3(ax + 7, rt + 9, az + 5.5), 4.0, 1, 1, VoxMat.id("metal_dark"))
-	if seed % 2 == 0:
-		_water_tank(v, Vector3(x0 + SEC * 0.5 + 40, rt, z0 + DEPTH * 0.55))
+		var mast_x := bx + 29
+		v.fill_box(Vector3i(mast_x, rt, zf + 17), Vector3i(mast_x + 1, rt + 21, zf + 18), VoxMat.id("metal_dark"))
+		for arm_y in [rt + 16, rt + 20]:
+			v.fill_box(Vector3i(mast_x - 5, arm_y, zf + 17), Vector3i(mast_x + 7, arm_y + 1, zf + 18), VoxMat.id("metal"))
 
 	var interior := AABB(Vector3(x0 + T, PL, z0 + T) * VS, Vector3(L - 2 * T, top - PL, DEPTH - 2 * T) * VS)
 	return {"volume": v, "lamps": lamps, "entrances": entrances, "interior": interior,
+		"hides": hides, "doors": doors, "portals": portals, "secrets": secrets,
 		"front_z": z0, "back_z": z1, "x0": x0, "x1": x1, "top": top}
+
+
+static func _balcony(v: VoxelVolume, cx: int, y: int, z: int, seed: int) -> void:
+	_box(v, Vector3i(cx - 11, y - 2, z - 2), Vector3i(22, 2, 13), "stone")
+	_box(v, Vector3i(cx - 4, y, z - T), Vector3i(8, 21, T), "")
+	var finish: String = AWNINGS[seed % AWNINGS.size()]
+	_box(v, Vector3i(cx - 11, y, z + 10), Vector3i(22, 8, 1), finish)
+	for x in [cx - 11, cx + 10]:
+		_box(v, Vector3i(x, y, z), Vector3i(1, 9, 11), finish)
+	_box(v, Vector3i(cx - 11, y + 8, z + 10), Vector3i(22, 1, 1), "metal_dark")
+	if seed % 3 == 0:
+		for x in range(cx - 10, cx + 11, 5):
+			_box(v, Vector3i(x, y + 8, z + 10), Vector3i(1, 15, 1), "pvc")
+			_box(v, Vector3i(x + 1, y + 9, z + 10), Vector3i(4, 12, 1), "glass")
+
+
+static func _room_finish(v: VoxelVolume, x: int, y: int, front: int, back: int, middle: int, bay: int, seed: int) -> void:
+	# Replace the face of the slab so the new finishes leave door thresholds clear.
+	var wood := VoxMat.id("wood" if (seed + bay) % 3 == 0 else "wood_light")
+	var kitchen_tile := VoxMat.id("sidewalk" if bay == 1 or bay == 4 else "wood_grey")
+	v.fill_box(Vector3i(x + T, y - 1, front + T), Vector3i(x + BAY - T, y, middle), wood)
+	v.fill_box(Vector3i(x + T, y - 1, middle + 3), Vector3i(x + BAY - T, y, back - T), kitchen_tile)
+	var wall := VoxMat.id("plaster_green" if bay == 4 else ("plaster_blue" if bay == 1 else "plaster_yellow"))
+	v.fill_box(Vector3i(x + T, y, middle + 2), Vector3i(x + BAY - T, y + 12, middle + 3), wall)
+	v.fill_box(Vector3i(x + T, y, middle), Vector3i(x + BAY - T, y + 7, middle + 1), VoxMat.id("plaster"))
+
+
+static func _table(v: VoxelVolume, o: Vector3i, width: int, depth: int, height: int, swatch: String) -> void:
+	_box(v, o + Vector3i(0, height - 1, 0), Vector3i(width, 1, depth), swatch)
+	for x in [0, width - 1]:
+		for z in [0, depth - 1]:
+			_box(v, o + Vector3i(x, 0, z), Vector3i(1, height - 1, 1), "wood_dark")
+
+
+static func _box(v: VoxelVolume, o: Vector3i, size: Vector3i, swatch: String) -> void:
+	v.fill_box(o, o + size, 0 if swatch.is_empty() else VoxMat.id(swatch))
 
 
 static func _brick_ring(v: VoxelVolume, x0: int, z0: int, x1: int, z1: int, y0: int, y1: int, t: int, swatch: String, seed: int) -> void:
@@ -242,8 +299,16 @@ static func _stairs(v: VoxelVolume, bx: int, zf: int, zi: int, seed: int) -> voi
 			v.fill_box_noise(Vector3i(xa0, ta - 2, zi - 12 - 3 * k), Vector3i(xa1, ta, zi - 9 - 3 * k), con, seed + k)
 			var tb := y0 + 14 + 2 * k
 			v.fill_box_noise(Vector3i(xa1, tb - 2, zf + 12 + 3 * k), Vector3i(xb1, tb, zf + 15 + 3 * k), con, seed + k + 9)
-		# Railing between the flights.
-		v.fill_box(Vector3i(xa1, y0 + 2, zf + 15), Vector3i(xa1 + 1, y0 + 24, zi - 12), VoxMat.id("metal_dark"))
+		# Short railing sections follow the risers and leave the turn open.
+		for k in range(1, 6):
+			var rz := zi - 12 - 3 * k
+			var ry := y0 + 2 * k
+			v.fill_box(Vector3i(xa1 - 1, ry - 1, rz), Vector3i(xa1, ry + 10, rz + 1), VoxMat.id("metal_dark"))
+			v.fill_box(Vector3i(xa1 - 1, ry + 9, rz), Vector3i(xa1, ry + 11, rz + 3), VoxMat.id("wood_dark"))
+		var plaque_x := bx + BAY - 2
+		var plaque_z := zi
+		v.fill_box(Vector3i(plaque_x, y0 + 9, plaque_z), Vector3i(plaque_x + 1, y0 + 16, plaque_z + 6), VoxMat.id("plaster_blue"))
+		VoxelFont.draw(v, str(f + 1), Vector3i(plaque_x - 1, y0 + 15, plaque_z + 1), Vector3i(0, 0, 1), VoxMat.id("metal_dark"))
 
 
 ## Lit window, curtain or nothing behind the glass (d = depth just behind glass).
@@ -305,7 +370,7 @@ static func store(W: int, D: int, H: int, brand: String, seed: int) -> Dictionar
 	v.fill_box(Vector3i(ex - 1, 2, z1), Vector3i(ex + 41, 7, z1 + 1), 0)
 	v.fill_box(Vector3i(x0, H - 16, z1 - 1), Vector3i(x1, H + 5, z1 + 1), green if big else red)
 	var band_top := H + 2
-	var text := "FOOD MART" if big else "PHARMACY"
+	var text := "ПРОДУКТЫ" if big else "АПТЕКА"
 	var tw := VoxelFont.text_width(text, 2)
 	var tx := (x0 + x1) / 2 - tw / 2 + 10
 	VoxelFont.draw(v, text, Vector3i(tx, band_top - 2, z1 + 1), Vector3i(1, 0, 0), glow, 2)
@@ -344,6 +409,24 @@ static func store(W: int, D: int, H: int, brand: String, seed: int) -> Dictionar
 		var cx := ex + 50 + k * 22 if big else ex - 30 - k * 22
 		v.fill_box(Vector3i(cx, 2, z1 - 34), Vector3i(cx + 6, 10, z1 - 20), VoxMat.id("plastic_white"))
 		v.fill_box(Vector3i(cx, 10, z1 - 34), Vector3i(cx + 6, 11, z1 - 20), VoxMat.id("metal_dark"))
+		_box(v, Vector3i(cx + 1, 11, z1 - 28), Vector3i(5, 5, 2), "metal_dark")
+		_box(v, Vector3i(cx + 1, 12, z1 - 26), Vector3i(4, 3, 1), "metal_teal")
+	# Staff stockroom in the service lane. A framed opening connects it to the hall.
+	var stock_a := x1 - 47 if big else x0 + 3
+	var stock_b := x1 - 3 if big else x0 + 47
+	var stock_z := z0 + 62
+	var stock_wall := stock_a if big else stock_b - 1
+	_box(v, Vector3i(stock_wall, 2, z0 + 11), Vector3i(1, H - 3, 52), "plaster_green")
+	_box(v, Vector3i(stock_a, 2, stock_z), Vector3i(stock_b - stock_a, H - 3, 2), "plaster")
+	var stock_door := stock_a + 16
+	_box(v, Vector3i(stock_door, 2, stock_z), Vector3i(9, 21, 2), "")
+	for i in 4:
+		var bx := stock_a + 3 + (i % 2) * 28
+		var bz := z0 + 14 + (i / 2) * 10
+		_box(v, Vector3i(bx, 2, bz), Vector3i(9, 5 + (i % 3) * 3, 8), "wood")
+		_box(v, Vector3i(bx + 1, 5, bz + 8), Vector3i(5, 2, 1), "curtain_beige")
+	_box(v, Vector3i(stock_a + 10, 25, stock_z + 2), Vector3i(23, 7, 1), "metal_dark")
+	VoxelFont.draw(v, "СКЛАД", Vector3i(stock_a + 12, 31, stock_z + 3), Vector3i(1, 0, 0), glow)
 	var lamps: Array[Vector3i] = []
 	for lx in range(x0 + 30, x1 - 20, 80):
 		for lz in [z0 + 40, z1 - 40]:
@@ -358,7 +441,11 @@ static func store(W: int, D: int, H: int, brand: String, seed: int) -> Dictionar
 		v.fill_cylinder(Vector3(ux + 7, H + 14, uz + 8), 5.0, 1, 1, VoxMat.id("metal_dark"))
 		v.fill_cylinder(Vector3(ux + 16, H + 14, uz + 8), 5.0, 1, 1, VoxMat.id("metal_dark"))
 	var interior := AABB(Vector3(x0 + 2, 2, z0 + 2) * VS, Vector3(W - 4, H - 4, D - 4) * VS)
-	return {"volume": v, "lamps": lamps, "interior": interior}
+	return {"volume": v, "lamps": lamps, "interior": interior,
+		"cross": Vector3(logo_x + 8, band_top - 10, z1 + 4.5),
+		"portals": [Vector3(ex + 20, 2, z1 - 18), Vector3(ex + 20, 2, z1 - 29)],
+		"doors": [{"hinge": Vector3(stock_door, 2, stock_z + 1), "yaw": 0.0,
+			"finish": "wood_light" if big else "door_metal"}]}
 
 
 ## Two storey auto repair shop with a tire service bay in front (front = +z).
@@ -384,6 +471,7 @@ static func auto_shop(seed: int) -> Dictionary:
 	v.fill_box(Vector3i(8, 30, 13), Vector3i(20, 33, 56), 0)
 	# Service bay annex (cinder block).
 	var sb := VoxMat.ids("concrete")
+	v.fill_box(Vector3i(2, 0, 72), Vector3i(112, 2, 102), VoxMat.id("concrete_dark"))
 	v.fill_bricks(Vector3i(2, 2, 72), Vector3i(112, 32, 102), 0, 3, 1, sb, -1, seed)
 	v.fill_box(Vector3i(5, 2, 72), Vector3i(109, 32, 99), 0)
 	v.fill_box_noise(Vector3i(2, 32, 72), Vector3i(112, 35, 102), VoxMat.ids("roof_bitumen"), seed)
@@ -392,17 +480,33 @@ static func auto_shop(seed: int) -> Dictionary:
 	v.fill_box(Vector3i(12, 2, 99), Vector3i(22, 24, 102), 0)
 	# Door from annex into the shop.
 	v.fill_box(Vector3i(50, 2, 69), Vector3i(62, 24, 72), 0)
-	# "AUTO REPAIR" board with the US flag, "TIRE SERVICE" over the bay.
+	# Signboard and tricolour above the entrance.
 	v.fill_box(Vector3i(8, 38, 72), Vector3i(106, 58, 73), VoxMat.id("pvc"))
-	VoxelFont.draw(v, "AUTO REPAIR", Vector3i(12, 55, 73), Vector3i(1, 0, 0), VoxMat.id("brand_red"))
-	VoxelFont.draw(v, "OPEN 7 DAYS", Vector3i(12, 46, 73), Vector3i(1, 0, 0), VoxMat.id("metal_blue"))
-	_us_flag(v, Vector3i(84, 41, 73), 1)
+	VoxelFont.draw(v, "АВТОСЕРВИС", Vector3i(12, 55, 73), Vector3i(1, 0, 0), VoxMat.id("brand_red"))
+	VoxelFont.draw(v, "БЕЗ ВЫХОДНЫХ", Vector3i(8, 46, 73), Vector3i(1, 0, 0), VoxMat.id("metal_blue"))
+	russian_flag(v, Vector3i(84, 41, 73), 1)
 	v.fill_box(Vector3i(20, 27, 102), Vector3i(96, 35, 103), VoxMat.id("metal_yellow"))
-	VoxelFont.draw(v, "TIRE SERVICE", Vector3i(23, 34, 103), Vector3i(1, 0, 0), VoxMat.id("tank_black"))
+	VoxelFont.draw(v, "ШИНЫ", Vector3i(40, 34, 103), Vector3i(1, 0, 0), VoxMat.id("tank_black"))
 	# Tires inside the annex.
 	for k in 6:
 		_tire(v, Vector3(30 + k * 12, 2, 86), 2 + k % 3)
-	return {"volume": v, "lamps": [Vector3i(56, 26, 101)], "interior": AABB(Vector3(5, 2, 5) * VS, Vector3(104, 58, 64) * VS)}
+	# Workbench below, foreman's office upstairs.
+	_table(v, Vector3i(73, 2, 13), 25, 8, 9, "metal_dark")
+	_box(v, Vector3i(73, 11, 13), Vector3i(25, 8, 1), "wood")
+	for x in [77, 81, 87, 92]:
+		_box(v, Vector3i(x, 12, 14), Vector3i(1, 5, 1), "metal_white")
+	_box(v, Vector3i(92, 2, 46), Vector3i(10, 14, 17), "metal_blue")
+	_table(v, Vector3i(60, 33, 21), 18, 9, 8, "wood_dark")
+	_box(v, Vector3i(66, 41, 21), Vector3i(8, 7, 3), "tank_black")
+	_box(v, Vector3i(67, 42, 24), Vector3i(6, 5, 1), "metal_teal")
+	_box(v, Vector3i(86, 33, 48), Vector3i(13, 16, 9), "metal_white")
+	_box(v, Vector3i(91, 41, 47), Vector3i(2, 1, 1), "metal_dark")
+	var lamps: Array[Vector3i] = [Vector3i(56, 31, 90), Vector3i(61, 29, 42)]
+	for lamp in lamps:
+		v.fill_box(lamp - Vector3i(4, 0, 1), lamp + Vector3i(5, 1, 2), VoxMat.id("lamp"))
+	return {"volume": v, "lamps": lamps,
+		"interior": AABB(Vector3(5, 2, 5) * VS, Vector3(104, 58, 64) * VS),
+		"portals": [Vector3(49, 2, 43)]}
 
 
 static func _tire(v: VoxelVolume, p: Vector3, stack: int) -> void:
@@ -470,18 +574,11 @@ static func bus_stop(seed: int) -> VoxelVolume:
 		v.fill_box(Vector3i(x, 1, 5), Vector3i(x + 1, 8, 6), md)
 	v.fill_box(Vector3i(1, 28, 0), Vector3i(43, 37, 1), VoxMat.id("pvc"))
 	# Lettering faces the road side (+z).
-	VoxelFont.draw(v, "BUS", Vector3i(13, 35, 1), Vector3i(1, 0, 0), VoxMat.id("metal_blue"))
+	VoxelFont.draw(v, "СТОП", Vector3i(35, 35, 1), Vector3i(-1, 0, 0), VoxMat.id("metal_blue"))
 	return v
 
 
-## Stars and stripes, 19 x 14 voxels, facing +z at origin (bottom-left).
-static func _us_flag(v: VoxelVolume, o: Vector3i, depth: int) -> void:
-	var red := VoxMat.id("brand_red")
-	var white := VoxMat.id("pvc")
-	for row in 14:
-		var c := red if (row / 2) % 2 == 0 else white
-		v.fill_box(o + Vector3i(0, row, 0), o + Vector3i(19, row + 1, depth), c)
-	v.fill_box(o + Vector3i(0, 6, 0), o + Vector3i(8, 14, depth), VoxMat.id("metal_blue"))
-	for sy in range(7, 14, 2):
-		for sx in range(1, 8, 2):
-			v.set_voxel(o + Vector3i(sx, sy, depth - 1), white)
+static func russian_flag(v: VoxelVolume, o: Vector3i, depth: int) -> void:
+	var swatches := ["brand_red", "metal_blue", "pvc"]
+	for i in swatches.size():
+		v.fill_box(o + Vector3i(0, i * 4, 0), o + Vector3i(18, (i + 1) * 4, depth), VoxMat.id(swatches[i]))

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#10171b">
+  <title>Играть в BREAKPOINT</title>
+  <link rel="icon" href="./index.png" type="image/png">
+  <link rel="stylesheet" href="/play.css">
+
+</head>
+<body>
+  <canvas id="canvas" tabindex="0" aria-label="BREAKPOINT"></canvas>
+  <main id="loader" class="cover">
+    <div class="card">
+      <a href="/">← На сайт</a>
+      <h1>BREAKPOINT</h1>
+      <p>Запусти игру, чтобы открыть песочницу или сыграть в прятки по коду комнаты.</p>
+      <button id="boot" type="button">Запустить игру</button>
+      <progress id="progress" aria-label="Загрузка игры" hidden></progress>
+      <p id="boot-status" role="status"></p>
+    </div>
+  </main>
+  <script src="/release-config.js"></script>
+  <script src="index.js"></script>
+  <script>
+    const button = document.querySelector("#boot");
+    const bar = document.querySelector("#progress");
+    const status = document.querySelector("#boot-status");
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      bar.hidden = false;
+      status.textContent = "Загружаем игру…";
+      try {
+        const engine = new Engine({"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":8026616,"index.wasm":1508095},"focusCanvas":true,"gdextensionLibs":["voxcore.wasm"],"godotPoolSize":4});
+        const canvas = document.querySelector("#canvas");
+        await engine.startGame({
+          canvas,
+          onProgress(done, total) {
+            if (total > 0) {
+              bar.max = total;
+              bar.value = done;
+            }
+          }
+        });
+        document.querySelector("#loader").hidden = true;
+        canvas.focus();
+      } catch (error) {
+        console.error(error);
+        bar.hidden = true;
+        status.textContent = "Не удалось запустить игру. Обнови страницу или скачай версию для компьютера.";
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -48,9 +48,15 @@ func _notification(what: int) -> void:
 
 
 func _input(e: InputEvent) -> void:
-	if not is_instance_valid(player) or player.dead or inventory.is_open or pause.is_open():
+	if not is_instance_valid(player) or player.dead or player.navigation_menu_open or inventory.is_open or pause.is_open():
 		return
 	if e is InputEventScreenTouch:
+		var gadgets := VoxelWorld.instance.gadgets
+		if e.pressed and is_instance_valid(gadgets) and gadgets._mini_map.is_visible_in_tree() and gadgets._mini_map.get_global_rect().has_point(e.position):
+			_release_all()
+			gadgets._open_navigation()
+			get_viewport().set_input_as_handled()
+			return
 		if e.pressed:
 			_touch_start(e.index, _local(e.position))
 		else:
@@ -88,6 +94,11 @@ func _touch_start(index: int, at: Vector2) -> void:
 					_release_all()
 					inventory.open_touch()
 				"crouch":
+					if is_instance_valid(player.possessed_npc):
+						_crouch = false
+						Input.action_release(action)
+						player.toggle_disguise_seat()
+						return
 					_crouch = not _crouch
 					if _crouch:
 						Input.action_press(action)
@@ -159,13 +170,13 @@ func _grab_point(side: int) -> Vector2:
 func _button_available(action: String) -> bool:
 	if action == "TOOLS":
 		return not player.vehicle and not player.grabbed
-	if action == "grab":
-		return player.interaction_enabled
 	return true
 
 
 func _process(_delta: float) -> void:
-	var show_controls := not inventory.is_open and not player.dead and not pause.is_open()
+	if player.navigation_menu_open and not _touches.is_empty():
+		_release_all()
+	var show_controls := not inventory.is_open and not player.dead and not player.navigation_menu_open and not pause.is_open()
 	if visible != show_controls:
 		visible = show_controls
 	if player.grabbed:

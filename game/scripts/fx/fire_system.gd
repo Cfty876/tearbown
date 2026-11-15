@@ -10,6 +10,9 @@ const TICK := 0.2
 const VS := VoxelObject.VS
 
 var fires: Array[FirePoint] = []
+var sync_burn_cells := false
+var burn_updates: Array = []
+var _surface_flames: Array[Dictionary] = []
 var _keys := {}
 var _t := 0.0
 var _flames
@@ -145,14 +148,49 @@ func ignite_near(obj: VoxelObject, world_pos: Vector3, radius: float, n: int) ->
 				break
 
 
+func surface_flames(at: Vector3) -> void:
+	for i in 8:
+		if _surface_flames.size() >= 40:
+			break
+		var offset := Vector3(cos(i * TAU / 8.0), 0, sin(i * TAU / 8.0)) * (0.45 if i % 2 else 1.0)
+		var sample := at + offset
+		var hit := VoxelWorld.instance.raycast(sample + Vector3.UP * 0.55, sample - Vector3.UP * 1.2)
+		if not hit.is_empty():
+			_surface_flames.append({"at": hit.position + Vector3.UP * 0.10, "remaining": 4.0})
+
+
 func extinguish(pos: Vector3, radius: float) -> int:
 	var removed := 0
+	for i in range(_surface_flames.size() - 1, -1, -1):
+		if pos.distance_squared_to(_surface_flames[i].at) < radius * radius:
+			_surface_flames.remove_at(i)
+			removed += 1
 	for i in range(fires.size() - 1, -1, -1):
 		var f := fires[i]
 		if not is_instance_valid(f.obj) or _world_pos(f).distance_to(pos) < radius:
 			_remove(i)
 			removed += 1
 	return removed
+
+
+func extinguish_jet(origin: Vector3, end: Vector3, direction: Vector3) -> void:
+	var length := origin.distance_to(end) + 0.36
+	for i in range(_surface_flames.size() - 1, -1, -1):
+		var patch: Vector3 = _surface_flames[i].at
+		if Geometry3D.get_closest_point_to_segment(patch, origin, end).distance_squared_to(patch) < 0.48:
+			_surface_flames.remove_at(i)
+	for i in range(fires.size() - 1, -1, -1):
+		var fire := fires[i]
+		if not is_instance_valid(fire.obj):
+			_remove(i)
+			continue
+		var offset := _world_pos(fire) - origin
+		var distance := offset.dot(direction)
+		if distance < -0.2 or distance > length:
+			continue
+		var radius := 0.45 + distance * 0.085
+		if (offset - direction * distance).length_squared() < radius * radius:
+			_remove(i)
 
 
 func has_fire_in(obj: VoxelObject) -> bool:
@@ -201,6 +239,10 @@ func _process(delta: float) -> void:
 
 
 func _tick() -> void:
+	for i in range(_surface_flames.size() - 1, -1, -1):
+		_surface_flames[i].remaining -= TICK
+		if _surface_flames[i].remaining <= 0.0:
+			_surface_flames.remove_at(i)
 	var pl: Player = VoxelWorld.instance.player
 	if pl:
 		var pp := pl.global_position + Vector3(0, 0.6, 0)
@@ -239,14 +281,14 @@ func _spread_to_neighbors(f: FirePoint) -> void:
 
 func _burn(f: FirePoint) -> void:
 	var obj := f.obj
-	var c := Vector3(f.v) + Vector3(0.5, 0.5, 0.5)
+	var secrets := VoxelWorld.instance.secrets
+	if is_instance_valid(secrets) and secrets.protected(obj, _world_pos(f), 0.28):
+		return
+	var burn_seed := randi()
+	var char_seed := randi()
+	if _burn_cell(obj, f.v, burn_seed, char_seed) and sync_burn_cells and obj.network_id != 0:
+		burn_updates.append([obj.network_id, f.v.x, f.v.y, f.v.z, burn_seed, char_seed])
 	var vol := obj.volume
-	var res: Dictionary = vol.paint_sphere(c, 1.7, VoxMat.burn_remap, 0.85, randi())
-	var ch: Dictionary = vol.paint_sphere(c, 2.8, VoxMat.char_remap, 0.55, randi())
-	if ch.count > 0:
-		obj.mark_dirty(ch.min, ch.max, true)
-	if res.count > 0:
-		obj.after_edit(res.min, res.max)
 	# Keep eating into the material next to the burnt hole.
 	if is_instance_valid(obj) and fires.size() < MAX_FIRES:
 		var nv := vol.find_surface_voxel(f.v, 2, f.mat, randi())
@@ -254,8 +296,33 @@ func _burn(f: FirePoint) -> void:
 			ignite(obj, nv)
 
 
+func _burn_cell(obj: VoxelObject, cell: Vector3i, burn_seed: int, char_seed: int) -> bool:
+	var c := Vector3(cell) + Vector3.ONE * 0.5
+	var res: Dictionary = obj.volume.paint_sphere(c, 1.7, VoxMat.burn_remap, 0.85, burn_seed)
+	var ch: Dictionary = obj.volume.paint_sphere(c, 2.8, VoxMat.char_remap, 0.55, char_seed)
+	if ch.count > 0:
+		obj.mark_dirty(ch.min, ch.max, true)
+	if res.count > 0:
+		if sync_burn_cells:
+			obj.mark_dirty(res.min, res.max)
+		else:
+			obj.after_edit(res.min, res.max)
+	return ch.count > 0 or res.count > 0
+
+
+func apply_remote_burns(updates: Array) -> void:
+	for entry in updates:
+		if not entry is Array or entry.size() != 6:
+			continue
+		var object := VoxelWorld.instance.network_objects.get(int(entry[0])) as VoxelObject
+		if is_instance_valid(object):
+			_burn_cell(object, Vector3i(int(entry[1]), int(entry[2]), int(entry[3])), int(entry[4]), int(entry[5]))
+
+
 func visual_positions() -> PackedVector3Array:
 	var points := PackedVector3Array()
+	for patch in _surface_flames:
+		points.append(patch.at)
 	for f in fires:
 		if is_instance_valid(f.obj):
 			points.append(_world_pos(f))

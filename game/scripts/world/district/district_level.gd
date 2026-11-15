@@ -1,11 +1,5 @@
 class_name DistrictLevel
-## "Пригород": a small American town block, laid out after the original reference
-## (top-down) shot. 204.8 x 204.8 m, every object destructible.
-## Layout (meters, x east, z south, origin = map center):
-##   river with a pier on the west, self storage + sheds north, FOOD MART NE with
-##   parking, five brick walk-ups around a playground courtyard, PHARMACY SW,
-##   auto repair and dumpster enclosure SE, main road with bus stops south,
-##   side road east, chain-link fence and railway along the south edge.
+## Дворы Заречья: five-storey panel blocks around the existing street plan.
 
 const VS := 0.1
 const SIZE := 2048
@@ -30,8 +24,16 @@ var rng := RandomNumberGenerator.new()
 var tiles := {}               # Vector2i -> VoxelVolume
 var _occ := PackedByteArray()
 var _heights := PackedFloat32Array()
+var _map_surface: Texture2D
 var buildings := {}           # name -> VoxelObject (used by cinematics)
 var vehicles: Array[VoxelVehicle] = []
+var hide_spots: Array[Dictionary] = []
+var portal_sites: Array[Dictionary] = []
+var secret_rooms: Array[Dictionary] = []
+var pharmacy_cross := Vector3.ZERO
+var roof_route := PackedVector3Array()
+var lilacs: Array[Vector3] = []
+var _fence_obstacles: Array[VoxelObject] = []
 
 
 func _init(w: VoxelWorld) -> void:
@@ -42,21 +44,31 @@ func _init(w: VoxelWorld) -> void:
 
 func build() -> void:
 	var t0 := Time.get_ticks_msec()
+	await _stage("Рельеф и улицы", 16)
 	_terrain()
 	_ground_layout()
-	_spawn_tiles()
+	DistrictSecretMap.dig(self)
+	await _spawn_tiles()
 	print("[district] terrain %d ms" % (Time.get_ticks_msec() - t0))
+	await _stage("Пятиэтажки и квартиры", 52)
 	_water()
-	_buildings()
+	await _buildings()
 	print("[district] buildings %d ms" % (Time.get_ticks_msec() - t0))
+	await _stage("Дворы и транспорт", 79)
 	_courtyards()
 	_street()
 	_railway()
 	_parked_cars()
 	_traffic()
+	await _stage("Озеленение и окружение", 90)
 	_vegetation()
 	Backdrop.build(world, GY, HALF, HALF + 4.0, 77)
 	print("[district] total %d ms, %d objects" % [Time.get_ticks_msec() - t0, world.objects.size()])
+
+
+func _stage(title: String, percent: float) -> void:
+	GameState.loading_status(title, percent)
+	await world.get_tree().process_frame
 
 
 # ================================================================== helpers
@@ -201,13 +213,12 @@ func _terrain() -> void:
 		for tx in SIZE / TILE:
 			var v := Build.vol(Vector3i(TILE, 32, TILE))
 			var region := img.get_region(Rect2i(tx * TILE, tz * TILE, TILE, TILE))
-			# The shader supplies grass variation without splitting the mesh into individual quads.
-			var strata_seed := 0 if _web else tx * 31 + tz
-			v.fill_columns(Vector3i.ZERO, Vector3i(TILE, 0, TILE), region.get_data().to_float32_array(), 0.0, 1.0, layers, strata_seed)
+			# Keep flat terrain mergeable. The shader supplies variation on each voxel.
+			v.fill_columns(Vector3i.ZERO, Vector3i(TILE, 0, TILE), region.get_data().to_float32_array(), 0.0, 1.0, layers, 0)
 			# Wet banks and the riverbed.
 			v.replace(Vector3i(0, 16, 0), Vector3i(TILE, GROUND - 1, TILE), grass, VoxMat.id("sand"))
 			v.replace(Vector3i(0, 0, 0), Vector3i(TILE, 16, TILE), grass, VoxMat.id("mud"))
-			v.fill_box_noise(Vector3i(0, 0, 0), Vector3i(TILE, 4, TILE), VoxMat.ids("bedrock"), 1)
+			v.fill_box(Vector3i(0, 0, 0), Vector3i(TILE, 4, TILE), VoxMat.id("bedrock"))
 			tiles[Vector2i(tx, tz)] = v
 	# The river is not buildable.
 	for z in OCC_N:
@@ -224,6 +235,49 @@ func ground_height(x: float, z: float) -> float:
 	var vx := clampi(_vx(x), 0, SIZE - 1)
 	var vz := clampi(_vx(z), 0, SIZE - 1)
 	return floorf(_heights[vx + vz * SIZE]) * VS
+
+
+func map_surface() -> Texture2D:
+	if is_instance_valid(_map_surface):
+		return _map_surface
+	const PIXELS := 256
+	var terrain := Image.create(PIXELS, PIXELS, false, Image.FORMAT_RGB8)
+	var tints := {}
+	var layers := {
+		"grass": Color("#3f5140"), "dirt": Color("#545442"), "sand": Color("#7e7355"),
+		"asphalt": Color("#514f4b"), "asphalt_patch": Color("#494b47"), "sidewalk": Color("#78766b"),
+		"curb": Color("#929087"), "road_line": Color("#a6a69b"), "road_yellow": Color("#bd9d62"),
+		"concrete": Color("#686c62"), "gravel": Color("#6e6e60"), "mud": Color("#524e40"),
+	}
+	for name: String in layers:
+		for swatch in VoxMat.ids(name):
+			tints[swatch] = layers[name]
+	for py in PIXELS:
+		var z := py * SIZE / PIXELS + SIZE / PIXELS / 2
+		for px in PIXELS:
+			var x := px * SIZE / PIXELS + SIZE / PIXELS / 2
+			var tile: VoxelVolume = tiles[Vector2i(x / TILE, z / TILE)]
+			var cell := Vector3i(x % TILE, GROUND + 3, z % TILE)
+			var swatch := tile.get_voxel(cell)
+			while swatch == 0 and cell.y > 0:
+				cell.y -= 1
+				swatch = tile.get_voxel(cell)
+			var tint: Color = tints.get(swatch, Color("#454d3e"))
+			var wx := float(x) * VS - HALF
+			var wz := float(z) * VS - HALF
+			if wx > -125.0 and wx < -35.0 and wz > -110.0 and wz < 30.0 and float(cell.y + 1) * VS <= WATER_Y:
+				tint = Color("#3d666a") if cell.y >= 13 else Color("#32565e")
+			terrain.set_pixel(px, py, tint)
+	var image_area := Rect2i(0, 0, PIXELS, PIXELS)
+	for object in world.objects:
+		if not is_instance_valid(object) or not object.is_tree:
+			continue
+		var center := object.world_center()
+		var pixel := Vector2i((Vector2(center.x, center.z) + Vector2.ONE * HALF) * (PIXELS / (HALF * 2.0)))
+		terrain.fill_rect(Rect2i(pixel - Vector2i.ONE, Vector2i(3, 3)).intersection(image_area), Color("#354733"))
+		terrain.fill_rect(Rect2i(pixel - Vector2i.ONE, Vector2i(2, 2)).intersection(image_area), Color("#6f8861"))
+	_map_surface = ImageTexture.create_from_image(terrain)
+	return _map_surface
 
 
 func _ground_layout() -> void:
@@ -290,6 +344,10 @@ func _ground_layout() -> void:
 	_sidewalk(-34, 13, 28, 15.5)         # block 5 front
 	_sidewalk(22, -70, 70, -66)          # Pyaterochka front
 	_sidewalk(-84, 30, -52, 31)          # Magnit front
+	for booth: Vector3 in DistrictSecretProps.BOOTHS:
+		_sidewalk(booth.x - 1.3, booth.z - 1.3, booth.x + 1.3, booth.z + 1.3)
+	var cellar := DistrictSecretMap.DOGHOUSE
+	_sidewalk(cellar.x - 1.5, cellar.y - 1.5, cellar.x + 1.5, cellar.y + 2.1)
 	# --- playground: sand, worn paths
 	_fill(-30, -27, -5, -4, GROUND - 2, GROUND, "sand", 9)
 	_occ_rect(-30, -27, -5, -4)
@@ -318,12 +376,16 @@ func _ground_layout() -> void:
 
 
 func _spawn_tiles() -> void:
+	var done := 0
 	for tk: Vector2i in tiles:
 		var o := VoxelObject.new()
 		o.setup(tiles[tk], true, Vector3i(128, 32, 128))
 		o.label = "ground"
 		o.position = Vector3(tk.x * TILE * VS - HALF, 0, tk.y * TILE * VS - HALF)
 		world.add_child(o)
+		done += 1
+		if done % 8 == 0:
+			await _stage("Воксельные участки", 20.0 + 28.0 * done / tiles.size())
 
 
 func _water() -> void:
@@ -373,6 +435,23 @@ func _block(name: String, sections: int, center: Vector2, yaw: float, panel: Str
 	o.add_occluder(info.interior)
 	_lights(o, info.lamps, Color(1.0, 0.8, 0.52), 1.4, 6.0)
 	buildings[name] = o
+	for spot: Dictionary in info.hides:
+		spot["building"] = o
+		hide_spots.append(spot)
+	_add_portal_sites(o, info.portals)
+	_add_doors(o, info.doors)
+	for secret: Dictionary in info.secrets:
+		secret["building"] = o
+		secret_rooms.append(secret)
+	if name == "block1":
+		var x := float(info.x1) - 16.0
+		var z := float(info.back_z)
+		var top := float(info.top)
+		roof_route = PackedVector3Array([
+			o.to_global(Vector3(x, 0.2, z + 10) * VS),
+			o.to_global(Vector3(x, top + 11, z + 10) * VS),
+			o.to_global(Vector3(x, top + 11, z - 8) * VS),
+			o.to_global(Vector3(x, top + 3.1, z - 8) * VS)])
 	var vol: VoxelVolume = info.volume
 	var size := Vector3(vol.get_size()) * VS
 	var half_ext := Vector2(size.x, size.z) * 0.5
@@ -384,6 +463,7 @@ func _block(name: String, sections: int, center: Vector2, yaw: float, panel: Str
 		var wp := o.to_global(e * VS)
 		var side := basis * Vector3(1, 0, 0)
 		var out := basis * Vector3(0, 0, -1)
+		lilacs.append(Vector3(wp.x, GY, wp.z) + side * 5.5 + out * 0.1)
 		_place(DistrictProps.bench(rng.randi()), Vector3(wp.x, GY, wp.z) + side * 2.6 + out * 0.6, false, yaw + 180.0, "bench")
 		_place(DistrictProps.urn(), Vector3(wp.x, GY, wp.z) + side * 4.2, false, 0.0, "urn")
 		if rng.randf() < 0.7:
@@ -393,31 +473,55 @@ func _block(name: String, sections: int, center: Vector2, yaw: float, panel: Str
 	return o
 
 
+func _add_portal_sites(building: VoxelObject, sites: Array) -> void:
+	for point: Vector3 in sites:
+		portal_sites.append({"at": building.to_global(point * VS), "inside": true, "yaw": building.rotation.y})
+
+
+func _add_doors(building: VoxelObject, doors: Array) -> void:
+	for door: Dictionary in doors:
+		DistrictDoor.install(world, building.to_global(Vector3(door.hinge) * VS), building.rotation.y + float(door.yaw), str(door.finish))
+
+
 func _buildings() -> void:
-	_block("block1", 4, Vector2(-23, -58), 180.0, "brick", 1)
-	_block("block2", 3, Vector2(-64, -22), -90.0, "brick_brown", 2)
-	_block("block3", 3, Vector2(23, -20), 90.0, "brick_tan", 3)
-	_block("block4", 4, Vector2(78, -16), 90.0, "brick", 4)
-	_block("block5", 4, Vector2(-3, 21), 0.0, "brick_brown", 5)
+	var blocks := [
+		["block1", 4, Vector2(-23, -58), 180.0, "panel_grey"],
+		["block2", 3, Vector2(-64, -22), -90.0, "panel_beige"],
+		["block3", 3, Vector2(23, -20), 90.0, "panel_cream"],
+		["block4", 4, Vector2(78, -16), 90.0, "panel_grey"],
+		["block5", 4, Vector2(-3, 21), 0.0, "panel_beige"],
+	]
+	for i in blocks.size():
+		var b: Array = blocks[i]
+		_block(b[0], b[1], b[2], b[3], b[4], i + 1)
+		await _stage("Пятиэтажка %d / %d" % [i + 1, blocks.size()], 53 + 4 * i)
 
 	var p := DistrictBuildings.store(440, 190, 60, "foodmart", 11)
 	var po := _place(p.volume, _w(46, -79), true, 0.0, "foodmart", Vector3i(64, 64, 64))
 	po.add_occluder(p.interior)
 	_lights(po, p.lamps, Color(0.92, 0.96, 1.0), 1.6, 9.0)
 	buildings["foodmart"] = po
+	_add_portal_sites(po, p.portals)
+	_add_doors(po, p.doors)
 	_occ_rect(23, -89, 69, -68)
 
 	var m := DistrictBuildings.store(280, 140, 55, "pharmacy", 12)
+	DistrictSecretMap.cut_floor(m.volume, Vector2(-68, 23), DistrictSecretMap.PHARMACY)
 	var mo := _place(m.volume, _w(-68, 23), true, 0.0, "pharmacy", Vector3i(64, 64, 64))
+	pharmacy_cross = mo.to_global(Vector3(m.cross) * VS)
 	mo.add_occluder(m.interior)
 	_lights(mo, m.lamps, Color(0.92, 0.96, 1.0), 1.6, 9.0)
 	buildings["pharmacy"] = mo
+	_add_portal_sites(mo, m.portals)
+	_add_doors(mo, m.doors)
 	_occ_rect(-83, 15, -53, 31)
 
 	var r := DistrictBuildings.auto_shop(13)
+	DistrictSecretMap.cut_floor(r.volume, Vector2(55.5, 31), DistrictSecretMap.SHOP)
 	var ro := _place(r.volume, _w(55.5, 31), true, 0.0, "autoshop", Vector3i(64, 64, 64))
 	_lights(ro, r.lamps, Color(1.0, 0.8, 0.55), 1.4, 7.0)
 	buildings["autoshop"] = ro
+	_add_portal_sites(ro, r.portals)
 	_occ_rect(49.5, 25, 61.5, 37)
 	for k in 5:
 		var tp := Vector3(48.5 + k * 1.3, GY, 38.3 + (k % 2) * 0.9)
@@ -426,18 +530,20 @@ func _buildings() -> void:
 		_place(tv, tp, false, 0.0, "tires")
 
 	var g1 := DistrictBuildings.garage_row(13, 21)
-	_place(g1.volume, _w(-17, -89.2), true, 0.0, "storage", Vector3i(64, 32, 64))
+	_fence_obstacles.append(_place(g1.volume, _w(-17, -89.2), true, 0.0, "storage", Vector3i(64, 32, 64)))
 	var sign := Build.vol(Vector3i(80, 22, 2))
 	sign.fill_box(Vector3i(0, 0, 1), Vector3i(2, 22, 2), VoxMat.id("metal_dark"))
 	sign.fill_box(Vector3i(78, 0, 1), Vector3i(80, 22, 2), VoxMat.id("metal_dark"))
 	sign.fill_box(Vector3i(1, 10, 0), Vector3i(79, 21, 1), VoxMat.id("pvc"))
-	VoxelFont.draw(sign, "SELF STORAGE", Vector3i(75, 18, 0), Vector3i(-1, 0, 0), VoxMat.id("door_orange"))
+	VoxelFont.draw(sign, "ГАРАЖИ", Vector3i(57, 18, 0), Vector3i(-1, 0, 0), VoxMat.id("door_orange"))
 	_place(sign, _w(-17, -92.5, GY + 2.9), true, 0.0, "sign")
 	var g2 := DistrictBuildings.garage_row(12, 22)
-	_place(g2.volume, _w(-14, -76.3), true, 180.0, "storage", Vector3i(64, 32, 64))
+	_fence_obstacles.append(_place(g2.volume, _w(-14, -76.3), true, 180.0, "storage", Vector3i(64, 32, 64)))
 	_occ_rect(-38, -93, 4, -72)
-	for sp in [Vector2(-50, -91), Vector2(-50, -76), Vector2(45, -11), Vector2(47, 4)]:
-		_place(DistrictBuildings.shed(rng.randi()), _w(sp.x, sp.y), true, rng.randf_range(-5, 5) + (90.0 if sp.x > 0 else 0.0), "shed")
+	_occ_rect(8, -88, 22, -78)
+	for sp in [Vector2(-43.8, -88.9), Vector2(-50, -76), Vector2(45, -11), Vector2(47, 4)]:
+		_fence_obstacles.append(_place(DistrictBuildings.shed(rng.randi()), _w(sp.x, sp.y), true,
+			rng.randf_range(-5, 5) + (90.0 if sp.x > 0 else 0.0), "shed"))
 		_occ_rect(sp.x - 2, sp.y - 2, sp.x + 2, sp.y + 2)
 
 	_place(DistrictBuildings.bus_stop(1), _w(12, 52.2), true, 0.0, "bus_stop")
@@ -464,7 +570,7 @@ func _courtyards() -> void:
 	_place(DistrictProps.climber(0), _w(-35, -30), true, 90.0, "bars")
 	for e in [Vector2(-25, -21), Vector2(-11, -23), Vector2(-13, -12), Vector2(-20, -14), Vector2(-26, -9), Vector2(-9, -6), Vector2(-35, -30)]:
 		_occ_rect(e.x - 3, e.y - 3, e.x + 3, e.y + 3)
-	for b in [Vector3(-31, 0, -14), Vector3(-31, 0, -18), Vector3(-4, 0, -15), Vector3(-17, 0, -3), Vector3(-21, 0, -28)]:
+	for b in [Vector3(-31, 0, -14), Vector3(-31, 0, -18), Vector3(-4, 0, -15), Vector3(-17, 0, -3), Vector3(-23.8, 0, -27.6)]:
 		_place(DistrictProps.bench(rng.randi()), _w(b.x, b.z), false, 90.0 if absf(b.x + 17) > 10 else 0.0, "bench")
 	for k in 6:
 		var a := k * TAU / 6.0 + 0.3
@@ -499,7 +605,7 @@ func _courtyards() -> void:
 	for k in 4:
 		_place(Build.crate(rng.randi_range(6, 8), k + 9), _w(-50.5 + k * 1.1, 33.5), false, rng.randf() * 40.0, "crate")
 	# Benches and lamps along the paths.
-	for p in [Vector2(-30, -44.5), Vector2(-12, -44.5), Vector2(-50, -30), Vector2(-50, -10), Vector2(15, -30), Vector2(15, -10), Vector2(70, -30), Vector2(70, 0), Vector2(-20, 14.3), Vector2(10, 14.3)]:
+	for p in [Vector2(-30, -44.5), Vector2(-12, -44.5), Vector2(-50, -30), Vector2(-50, -10), Vector2(15, -30), Vector2(16.4, -11.9), Vector2(70, -30), Vector2(71.4, 2.1), Vector2(-20, 14.3), Vector2(10, 14.3)]:
 		_place(DistrictProps.bench(rng.randi()), _w(p.x, p.y), false, 0.0 if absf(p.y) > 40 or p.y > 10 else 90.0, "bench")
 	for p in [Vector2(-40, -45), Vector2(-48, -6), Vector2(12, -25), Vector2(66, -20), Vector2(-40, 14), Vector2(30, 14), Vector2(52, -60), Vector2(-60, 32)]:
 		var lp := _place(Build.lamp_post(), _w(p.x, p.y), true, rng.randf() * 360.0, "lamp_post")
@@ -510,7 +616,8 @@ func _courtyards() -> void:
 
 func _street() -> void:
 	for x in range(-96, 90, 18):
-		var n := _place(DistrictProps.lamp_pole(), _w(x, 52.6), true, 90.0, "pole")
+		var lamp_x := 16.1 if x == 12 else float(x)
+		var n := _place(DistrictProps.lamp_pole(), _w(lamp_x, 52.6), true, 90.0, "pole")
 		Build.lamp_light(n, Vector3i(13, 84, 1), Color(1.0, 0.75, 0.45), 3.0, 14.0)
 		_place(DistrictProps.lamp_pole(), _w(x + 9, 69.6), true, -90.0, "pole")
 	for z in range(-96, 50, 18):
@@ -529,18 +636,16 @@ func _street() -> void:
 		var p1 := Vector2(b.x, b.y) + n * (b.z + 10.0)
 		if p0.y > 10.0:
 			continue
-		var d := p1 - p0
-		var len := int(d.length() / VS)
 		var c := (p0 + p1) * 0.5
 		if absf(c.x) < HALF - 1 and absf(c.y) < HALF - 1:
-			_place(Build.picket_fence(len, i), Vector3(c.x, GY, c.y), true, rad_to_deg(atan2(-d.y, d.x)), "fence")
-	_place(DistrictProps.chain_link(560), _w(-17, -95.5), true, 0.0, "fence")
-	_place(DistrictProps.chain_link(240), _w(-41.5, -84), true, 90.0, "fence")
+			_river_fence(p0, p1, i)
+	_place(DistrictProps.chain_link(524), _w(-15.2, -95.5), true, 0.0, "fence")
+	_place(DistrictProps.chain_link(227), _w(-41.5, -84.05), true, 90.0, "fence")
 	for z in range(-95, 100, 24):
 		_place(DistrictProps.utility_pole(), _w(100.8, z), true, 90.0, "pole")
 	for x in range(-90, 90, 34):
 		_place(DistrictProps.fire_hydrant(x), _w(x + 7.0, 50.7), false, 0.0, "hydrant")
-	for p in [Vector2(-50, -45), Vector2(16, -30), Vector2(70, -5), Vector2(-20, 14.5), Vector2(66, 36), Vector2(-48, 30)]:
+	for p in [Vector2(-50, -45), Vector2(16, -30), Vector2(70, -5), Vector2(-18.6, 14.5), Vector2(66, 36), Vector2(-48, 30)]:
 		_place(DistrictProps.fire_hydrant(int(p.x)), _w(p.x, p.y), false, 0.0, "hydrant")
 	_place(DistrictProps.mailbox(), _w(16.5, 51.5), false, 0.0, "mailbox")
 	_place(DistrictProps.flag_pole(), _w(20, -67.5), true, 0.0, "flag")
@@ -548,11 +653,64 @@ func _street() -> void:
 	_place(DistrictProps.flag_pole(), _w(-50.5, 30.5), true, 0.0, "flag")
 
 
+func _river_fence(from: Vector2, to: Vector2, seed: int) -> void:
+	var spans: Array[Vector2] = [Vector2(0.0, 1.0)]
+	var obstacles := buildings.values()
+	obstacles.append_array(_fence_obstacles)
+	for building: VoxelObject in obstacles:
+		var blocked := _building_interval(from, to, building)
+		if not blocked.is_finite():
+			continue
+		var remaining: Array[Vector2] = []
+		for span in spans:
+			if span.y <= blocked.x or span.x >= blocked.y:
+				remaining.append(span)
+				continue
+			if span.x < blocked.x:
+				remaining.append(Vector2(span.x, blocked.x))
+			if span.y > blocked.y:
+				remaining.append(Vector2(blocked.y, span.y))
+		spans = remaining
+	var direction := to - from
+	var yaw := rad_to_deg(atan2(-direction.y, direction.x))
+	for span in spans:
+		var len := floori(direction.length() * (span.y - span.x) / VS)
+		if len < 8:
+			continue
+		var center := from.lerp(to, (span.x + span.y) * 0.5)
+		_place(Build.picket_fence(len, seed), _w(center.x, center.y), true, yaw, "fence")
+
+
+func _building_interval(from: Vector2, to: Vector2, building: VoxelObject) -> Vector2:
+	const FENCE_CLEARANCE := 0.8
+	var a := building.to_local(_w(from.x, from.y))
+	var delta := building.to_local(_w(to.x, to.y)) - a
+	var size := Vector3(building.volume.get_size()) * VS
+	var first := 0.0
+	var last := 1.0
+	for axis: int in [0, 2]:
+		var edge := size[axis] + FENCE_CLEARANCE
+		if absf(delta[axis]) < 0.001:
+			if a[axis] < -FENCE_CLEARANCE or a[axis] > edge:
+				return Vector2.INF
+			continue
+		var near_t := (-FENCE_CLEARANCE - a[axis]) / delta[axis]
+		var far_t := (edge - a[axis]) / delta[axis]
+		first = maxf(first, minf(near_t, far_t))
+		last = minf(last, maxf(near_t, far_t))
+		if first >= last:
+			return Vector2.INF
+	return Vector2(first, last)
+
+
 func _railway() -> void:
+	var start := 0
 	for k in 5:
-		var x := -HALF + 20.48 + k * 40.96
-		_place(DistrictProps.railway(410, k), _w(x, 89.0), true, 0.0, "railway", Vector3i(64, 32, 72))
-		_place(DistrictProps.chain_link(410), _w(x, 81.0), true, 0.0, "fence")
+		var length := 410 - k % 2
+		var x := -HALF + (start + length * 0.5) * VS
+		_place(DistrictProps.railway(length, k), _w(x, 89.0), true, 0.0, "railway", Vector3i(64, 32, 72))
+		_place(DistrictProps.chain_link(length), _w(x, 81.0), true, 0.0, "fence")
+		start += length
 	_occ_rect(-HALF, 80, HALF, 96)
 	var x0 := -60.0
 	for k in 5:
@@ -570,49 +728,22 @@ const CAR_COLORS := ["metal_white", "metal_white", "metal", "metal", "metal_dark
 
 func _car(pos: Vector3, yaw: float, label := "car") -> VoxelObject:
 	var color: String = CAR_COLORS[rng.randi() % CAR_COLORS.size()]
-	if label == "car" and rng.randf() < 0.3:
-		# Pickups are as common as sedans in an American lot.
-		var pk := DistrictProps.pickup(color, rng.randi())
-		var po := _place(pk.volume, pos, false, yaw, "pickup")
-		vehicles.append(VoxelVehicle.attach(po, pk.hubs, Vector3(-1, 0, 0), 0.38))
-		return po
 	var c := _place(Build.car(color, rng.randi()), pos, false, yaw, label)
 	vehicles.append(VoxelVehicle.attach(c, Build.car_hubs(), Vector3(-1, 0, 0)))
 	return c
 
 
 func _parked_cars() -> void:
-	var road_y := GY - 0.1
-	var parking_step := 6 if _web else 3
-	for x in range(23, 77, parking_step):
-		if rng.randf() < 0.68:
-			_car(Vector3(x + 1.5, road_y, -64.0), -90.0)
-		if rng.randf() < 0.55:
-			_car(Vector3(x + 1.5, road_y, -58.0), 90.0)
-	for x in range(-85, -52, parking_step):
-		if rng.randf() < 0.7:
-			_car(Vector3(x + 1.5, road_y, 33.2), -90.0)
-		if rng.randf() < 0.4:
-			_car(Vector3(x + 1.5, road_y, 45.0), 90.0)
-	for z in range(-44, 6, parking_step):
-		if rng.randf() < 0.7:
-			_car(Vector3(62.5, road_y, z + 1.5), 0.0)
-	for z in range(-32, 10, 6):
-		if rng.randf() < 0.65:
-			_car(Vector3(-42.2, road_y, z), 90.0)
-	for x in range(-40, 6, 6):
-		if rng.randf() < 0.55:
-			_car(Vector3(x, road_y, -41.0), 0.0)
-	for x in [-30.0, -5.0, 20.0]:
-		_car(Vector3(x, road_y, 10.2), 180.0)
-	_car(Vector3(-30, road_y, -82.0), 5.0)
-	_car(Vector3(47, road_y, 41), 90.0)
-	var t := DistrictProps.box_truck(1)
-	var to := _place(t.volume, Vector3(73.0, road_y, -80.0), false, -90.0, "truck")
-	vehicles.append(VoxelVehicle.attach(to, t.hubs, Vector3(-1, 0, 0), 0.45))
-	var gz := DistrictProps.gazelle(false, 2)
-	var go := _place(gz.volume, Vector3(-36.0, road_y, -83.0), false, 0.0, "van")
-	vehicles.append(VoxelVehicle.attach(go, gz.hubs, Vector3(-1, 0, 0)))
+	var slots: Array[Vector3] = [
+		Vector3(26.5, -63.7, -90), Vector3(38.5, -63.7, -90),
+		Vector3(62.5, -63.7, -90), Vector3(74.5, -58.3, 90),
+		Vector3(-80.5, 33.2, -90), Vector3(-68.5, 33.2, -90),
+		Vector3(-77.5, 44.5, 90), Vector3(-65.5, 44.5, 90),
+		Vector3(61.6, -36.5, 0), Vector3(61.6, -18.5, 0), Vector3(61.6, -0.5, 0),
+		Vector3(63.0, 43.0, 90),
+	]
+	for slot in slots:
+		_car(Vector3(slot.x, GY - 0.08, slot.y), slot.z)
 
 
 func _traffic() -> void:
@@ -624,12 +755,8 @@ func _traffic() -> void:
 	var mo := _place(DistrictProps.taxi(3), Vector3(70, road_y, 57.4), false, 0.0, "taxi")
 	var mv := VoxelVehicle.attach(mo, Build.car_hubs(), Vector3(-1, 0, 0))
 	TrafficDriver.attach(mv, [Vector3(70, 0, 57.4), Vector3(-100, 0, 57.4)], 10.0)
-	var co := _car(Vector3(96.5, road_y, 90.0), -90.0, "traffic")
-	TrafficDriver.attach(co.get_node("Vehicle"), [Vector3(96.5, 0, 90), Vector3(96.5, 0, -100)], 11.0)
-	var co2 := _car(Vector3(91.5, road_y, -95.0), 90.0, "traffic")
-	TrafficDriver.attach(co2.get_node("Vehicle"), [Vector3(91.5, 0, -95), Vector3(91.5, 0, 100)], 10.0)
-	var co3 := _car(Vector3(-40, road_y, 57.4), 0.0, "traffic")
-	TrafficDriver.attach(co3.get_node("Vehicle"), [Vector3(-40, 0, 57.4), Vector3(-100, 0, 57.4)], 12.0)
+	var co := _car(Vector3(96.5, road_y, 76.5), -90.0, "traffic")
+	TrafficDriver.attach(co.get_node("Vehicle"), [Vector3(96.5, 0, 76.5), Vector3(96.5, 0, -100)], 11.0)
 
 
 # ================================================================== vegetation
@@ -644,6 +771,7 @@ func _tree(x: float, z: float, kind: String) -> void:
 	var sz := v.get_size()
 	var cs := Vector3i(maxi(sz.x, 32), maxi(sz.y, 32), maxi(sz.z, 32))
 	var o := _place(v, Vector3(x, ground_height(x, z) - 0.1, z), true, rng.randf() * 360.0, "tree", cs)
+	o.is_tree = kind != "bush"
 	for c in o.get_children():
 		if c is MeshInstance3D:
 			var mi := c as MeshInstance3D

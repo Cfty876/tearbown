@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#11191d">
+  <meta name="description" content="BREAKPOINT — воксельная песочница с разрушаемыми картами и прятками по сети.">
+  <title>BREAKPOINT — воксельная песочница</title>
+  <link rel="stylesheet" href="/site.css">
+  <link rel="icon" href="/play/index.png" type="image/png">
+  <script src="/release-config.js" defer></script>
+  <script src="/site.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="mark" href="/">BREAKPOINT</a>
+    <nav aria-label="Навигация"><a href="#maps">Локации</a><a href="#downloads">Скачать</a></nav>
+  </header>
+  <main>
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-inner">
+        <h1 id="hero-title">BREAKPOINT</h1>
+        <p>Воксельная песочница с разрушаемым окружением. Исследуй район, находи тайные проходы и играй в прятки по сети.</p>
+        <div class="actions">
+          <a class="button primary" href="/play/">Играть в браузере</a>
+          <a class="button" href="#downloads">Скачать на компьютер</a>
+        </div>
+      </div>
+    </section>
+    <section id="maps" class="section" aria-labelledby="maps-title">
+      <h2 id="maps-title">Локации</h2>
+      <div class="maps">
+        <article class="map"><img src="/media/map_district.jpg" alt="" width="960" height="540" loading="lazy"><h3>Дворы Заречья</h3><p>Дворы, подъезды и крыши панельного района.</p></article>
+        <article class="map"><img src="/media/map_school.jpg" alt="" width="960" height="540" loading="lazy"><h3>Школа № 120</h3><p>Четыре этажа, стадион, мастерские и подземные маршруты.</p></article>
+        <article class="map"><img src="/media/map_pocket.jpg" alt="" width="960" height="540" loading="lazy"><h3>Арена</h3><p>Компактная карта для пряток вдвоём в браузере.</p></article>
+      </div>
+    </section>
+    <section id="downloads" class="section" aria-labelledby="downloads-title">
+      <h2 id="downloads-title">Скачать игру</h2>
+      <div class="downloads">
+        <article><h3>Windows</h3><p>64-разрядная сборка.</p><a id="windows-download" class="button primary" hidden>Скачать для Windows</a><p id="windows-status" class="status">Сборка пока недоступна.</p></article>
+        <article><h3>macOS</h3><p>Сборка для Apple Silicon и Intel.</p><a id="macos-download" class="button primary" hidden>Скачать для macOS</a><p id="macos-status" class="status">Сборка пока недоступна.</p></article>
+      </div>
+      <p id="online-status" class="status" role="status">Проверяем настройки онлайн-комнат…</p>
+    </section>
+  </main>
+  <footer class="site-footer">BREAKPOINT</footer>
+</body>
+</html>

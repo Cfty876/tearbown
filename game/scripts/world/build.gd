@@ -116,7 +116,7 @@ static func line(v: VoxelVolume, a: Vector3, b: Vector3, thickness: int, value: 
 		v.fill_box(c - Vector3i(h, h, h), c - Vector3i(h, h, h) + Vector3i(thickness, thickness, thickness), value)
 
 
-static func lamp_light(obj: VoxelObject, voxel: Vector3i, color := Color(1.0, 0.8, 0.55), energy := 2.0, rng := 9.0, shadow := false) -> void:
+static func lamp_light(obj: VoxelObject, voxel: Vector3i, color := Color(1.0, 0.8, 0.55), energy := 2.0, rng := 9.0, shadow := false) -> LampLight:
 	var l := LampLight.new()
 	l.obj = obj
 	l.voxel = voxel
@@ -125,7 +125,12 @@ static func lamp_light(obj: VoxelObject, voxel: Vector3i, color := Color(1.0, 0.
 	l.omni_range = rng
 	l.shadow_enabled = shadow
 	l.position = (Vector3(voxel) + Vector3(0.5, -0.6, 0.5)) * VS
+	if OS.has_feature("web"):
+		l.distance_fade_enabled = true
+		l.distance_fade_begin = rng + 8.0
+		l.distance_fade_length = 7.0
 	obj.add_child(l)
+	return l
 
 
 # ================================================================== buildings
@@ -180,6 +185,7 @@ static func brick_house(seed: int) -> VoxelVolume:
 		window(v, 0, x1 - 4, 4, u, 41, 14, 15, "wood_dark", 1)
 	door(v, 2, z0, t, x0 + 54, 3, 11, 22)
 	door(v, 0, x1 - t, t, z0 + 20, 3, 10, 22)
+	DistrictInteriors.house(v, seed)
 	var top := gable_roof(v, x0, x1, z0, z1, 64, "roof_tile", "brick", M, 3, seed)
 	# chimney
 	v.fill_bricks(Vector3i(x0 + 16, 60, z0 + 58), Vector3i(x0 + 24, mini(top + 8, 111), z0 + 66), 0, 3, 1, VoxMat.ids("brick_dark"), -1, seed)
@@ -272,7 +278,7 @@ static func garage(seed: int) -> VoxelVolume:
 	for bx in range(10, W - 5, 15):
 		v.fill_box(Vector3i(bx, H - 3, 5), Vector3i(bx + 3, H, D - 3), VoxMat.id("metal_rust"))
 	door(v, 2, 1, 4, 12, 2, 40, 26, "concrete_dark")
-	# roll door hanging half open (thin metal, cuttable with the torch)
+	# Thin metal roll door hanging half open.
 	v.fill_planks(Vector3i(12, 16, 2), Vector3i(52, 28, 3), 0, 1, 2, VoxMat.ids("metal_white"), seed)
 	window(v, 0, W - 3, 4, 20, 14, 16, 10, "metal_dark", 1)
 	window(v, 2, D - 3, 4, 30, 14, 16, 10, "metal_dark", 1)

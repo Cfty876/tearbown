@@ -11,12 +11,12 @@ uniform float sunlight = 0.0;
 void fragment() {
 	vec2 uv = SCREEN_UV;
 	vec2 off_center = 2.0 * uv - 1.0;
-	float edge = smoothstep(0.55, 1.18, length(off_center * vec2(0.86, 0.91)));
-	vec2 step_uv = (turn_px * mix(0.36, 1.0, edge) + off_center * edge * edge_px) * SCREEN_PIXEL_SIZE;
+	float edge = smoothstep(0.68, 1.21, length(off_center * vec2(0.89, 0.95)));
+	vec2 step_uv = (turn_px * mix(0.33, 1.0, edge) + off_center * edge * edge_px) * SCREEN_PIXEL_SIZE;
 	vec3 c = textureLod(screen_tex, uv, 0.0).rgb;
 	if (dot(step_uv, step_uv) > 0.00000008) {
-		vec3 sides = textureLod(screen_tex, uv - step_uv, 0.0).rgb;
-		sides += textureLod(screen_tex, uv + step_uv, 0.0).rgb;
+		vec3 sides = textureLod(screen_tex, uv - step_uv * 0.79, 0.0).rgb;
+		sides += textureLod(screen_tex, uv + step_uv * 1.10, 0.0).rgb;
 		if (extra_taps) {
 			vec3 inner = textureLod(screen_tex, uv - step_uv * 0.48, 0.0).rgb;
 			inner += textureLod(screen_tex, uv + step_uv * 0.48, 0.0).rgb;

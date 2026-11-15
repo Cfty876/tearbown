@@ -34,7 +34,7 @@ func _ready() -> void:
 	if mode != "drive" and mode != "glass":
 		p.set_physics_process(false)
 	if mode == "glass":
-		# Sprint into the glass back wall of a bus stop: the glass must give way.
+		# Sprint into the glass back wall of a bus stop and check the pane stops the player.
 		_phases = [
 			["g_start", 0.5, Vector3(12, 3.67, 49.6), Vector3(12, 3.6, 60)],
 			["g_run", 3.0, null, null, ["move_forward", "sprint"]],
@@ -78,7 +78,6 @@ func _ready() -> void:
 		_phases = [
 			["t_hammer", 1.6, at, wall, [], PlayerTools.HAMMER, "fire"],
 			["t_shotgun", 1.2, at + Vector3(0, 0, 3), wall, [], PlayerTools.SHOTGUN, "fire"],
-			["t_torch", 2.0, at + Vector3(1.5, 0, -0.4), wall + Vector3(1.5, 0, 0), [], PlayerTools.TORCH, "fire"],
 			["t_spray", 1.5, at + Vector3(-2.5, 0, 1), wall + Vector3(-2.5, 0, 0), [], PlayerTools.SPRAY, "fire"],
 			["t_bomb", 4.0, at + Vector3(0, 0, 6), wall + Vector3(0, -1, 0), [], PlayerTools.PIPEBOMB, "fire"],
 			["t_rocket", 2.5, at + Vector3(6, 0.5, 9), wall + Vector3(4, 1, 0), [], PlayerTools.ROCKET, "fire"],
@@ -261,4 +260,3 @@ func _finish() -> void:
 	p.tools.input_enabled = true
 	main.hud.message("Бенчмарк завершён: " + (_report[_report.size() - 1].substr(0, 40) if not _report.is_empty() else ""), 5.0)
 	queue_free()
-

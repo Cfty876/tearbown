@@ -1,27 +1,31 @@
 class_name LampLight
 extends OmniLight3D
-## Light bound to an emissive voxel: goes out when that voxel is destroyed or
-## its piece breaks off.
+## The power switch controls visibility. The emissive voxel controls output.
 
 var obj: VoxelObject
 var voxel := Vector3i.ZERO
+var follow_offset := Vector3.INF
 var _t := 0.0
-var _web := OS.has_feature("web")
+var _rated_energy := 0.0
 
 
 func _ready() -> void:
-	if _web:
-		hide()
+	_rated_energy = light_energy
+	_update_output()
 
 
 func _process(delta: float) -> void:
 	_t += delta
-	if _t < 0.3:
+	if _t < 0.16:
 		return
 	_t = 0.0
-	if not is_instance_valid(obj) or obj.volume.get_voxel(voxel) == 0:
-		queue_free()
-		return
-	if _web and is_instance_valid(VoxelWorld.instance.player):
-		var radius := omni_range + 15.0
-		visible = global_position.distance_squared_to(VoxelWorld.instance.player.global_position) < radius * radius
+	_update_output()
+
+
+func _update_output() -> void:
+	var intact := is_instance_valid(obj) and VoxMat.material_of(obj.volume.get_voxel(voxel)) == VoxMat.EMISSIVE
+	var output := _rated_energy if intact else 0.0
+	if not is_equal_approx(light_energy, output):
+		light_energy = output
+	if intact and follow_offset.is_finite():
+		global_position = obj.to_global(follow_offset)

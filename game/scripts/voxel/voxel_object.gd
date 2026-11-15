@@ -13,6 +13,11 @@ const SPAWN_GRACE_MS := 500
 var volume: VoxelVolume
 var network_id := 0
 var static_mode := false
+var static_layer := Layers.STATIC
+var voxel_material_override: Material
+var retain_when_empty := false
+var glass_impacts: Array[Dictionary] = []
+var follow_static_transform := false
 var chunk_size := Vector3i(32, 32, 32)
 var label := ""
 ## Explosive props (propane tanks, barrels): radius in meters, 0 = inert.
@@ -24,6 +29,9 @@ var held := false
 ## so holes never hide what is behind them.
 var occluder: Node3D
 var spawn_ms := 0
+var is_tree := false
+var tree_falling := false
+var tree_hit_dir := Vector3.ZERO
 
 var _chunks := {}           # Vector3i -> Chunk
 var _dirty := {}            # Vector3i -> true
@@ -56,7 +64,7 @@ func _ready() -> void:
 	if static_mode:
 		freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
 		freeze = true
-		collision_layer = Layers.STATIC
+		collision_layer = static_layer
 		collision_mask = 0
 	else:
 		collision_layer = Layers.DYNAMIC
@@ -76,9 +84,31 @@ func _ready() -> void:
 		ceili(float(volume.get_size().z) / chunk_size.z))
 	VoxelWorld.instance.register(self)
 	rebuild_all()
+	if follow_static_transform:
+		set_notify_transform(true)
+
+
+func set_layout_pose(pose: Transform3D) -> void:
+	if static_mode and not follow_static_transform:
+		follow_static_transform = true
+		set_notify_transform(true)
+	global_transform = pose
+	if static_mode:
+		# A paused scene does not flush transform notifications until the next frame.
+		_update_static_transform()
+	else:
+		PhysicsServer3D.body_set_state(get_rid(), PhysicsServer3D.BODY_STATE_TRANSFORM, pose)
+
+
+func _update_static_transform() -> void:
+	for c: Chunk in _chunks.values():
+		if c.body.is_valid():
+			PhysicsServer3D.body_set_state(c.body, PhysicsServer3D.BODY_STATE_TRANSFORM, global_transform)
 
 
 func _notification(what: int) -> void:
+	if what == NOTIFICATION_TRANSFORM_CHANGED and follow_static_transform and is_inside_tree():
+		_update_static_transform()
 	if what == NOTIFICATION_PREDELETE:
 		for c: Chunk in _chunks.values():
 			if c.body.is_valid():
@@ -158,7 +188,8 @@ func _rebuild_chunk_inner(key: Vector3i, collision: bool) -> void:
 	var mesh := ArrayMesh.new()
 	if not opaque.is_empty():
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, opaque)
-		mesh.surface_set_material(mesh.get_surface_count() - 1, VoxMat.opaque_material)
+		mesh.surface_set_material(mesh.get_surface_count() - 1,
+			voxel_material_override if voxel_material_override else VoxMat.opaque_material)
 	if not glass.is_empty():
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, glass)
 		mesh.surface_set_material(mesh.get_surface_count() - 1, VoxMat.glass_material)
@@ -186,7 +217,7 @@ func _rebuild_static_body(c: Chunk) -> void:
 	if not c.body.is_valid():
 		c.body = PhysicsServer3D.body_create()
 		PhysicsServer3D.body_set_mode(c.body, PhysicsServer3D.BODY_MODE_STATIC)
-		PhysicsServer3D.body_set_collision_layer(c.body, Layers.STATIC)
+		PhysicsServer3D.body_set_collision_layer(c.body, static_layer)
 		PhysicsServer3D.body_set_collision_mask(c.body, 0)
 		PhysicsServer3D.body_attach_object_instance_id(c.body, get_instance_id())
 		PhysicsServer3D.body_set_param(c.body, PhysicsServer3D.BODY_PARAM_FRICTION, 0.9)
@@ -207,7 +238,8 @@ func _add_boxes(body: RID, b: PackedFloat32Array) -> void:
 
 func _finish_rebuild() -> void:
 	if volume.get_solid_count() == 0:
-		queue_free()
+		if not retain_when_empty:
+			queue_free()
 		return
 	if static_mode or not _shapes_dirty:
 		return
@@ -277,7 +309,7 @@ func voxel_count() -> int:
 
 ## Carves a sphere (world units). Returns the native result with debris samples.
 func carve(world_pos: Vector3, radius: float, power: float, jitter := 0.3, debris_chance := 0.05, max_debris := 24) -> Dictionary:
-	var res: Dictionary = volume.carve_sphere(to_voxel(world_pos), radius / VS, power, jitter, debris_chance, max_debris, randi())
+	var res: Dictionary = volume.carve_sphere(to_voxel(world_pos), radius / VS, minf(power, VoxMat.UNBREAKABLE_STRENGTH * 0.1), jitter, debris_chance, max_debris, randi())
 	var n: int = res.count
 	if n > 0:
 		_damage += n
@@ -306,6 +338,11 @@ func after_edit(vmin: Vector3i, vmax: Vector3i) -> void:
 		var off: Vector3i = island.offset
 		var isz: Vector3i = (island.volume as VoxelVolume).get_size()
 		mark_dirty(off, off + isz)
+	if is_tree and not islands.is_empty():
+		# Release the old trunk collision before the new crown starts to turn.
+		while rebuild_next():
+			pass
+	for island: Dictionary in islands:
 		VoxelWorld.instance.spawn_island(self, island)
 
 
@@ -317,27 +354,36 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		return
 	var now := Time.get_ticks_msec()
 	var cooldown := IMPACT_COOLDOWN_MS if mass < 20000.0 else 70
-	if now - _last_impact_ms < cooldown or now - spawn_ms < SPAWN_GRACE_MS:
+	var allow_impact := now - _last_impact_ms >= cooldown and now - spawn_ms >= SPAWN_GRACE_MS
+	var tree_contact := tree_falling and not freeze and state.transform.basis.y.y < 0.84
+	if not allow_impact and not tree_contact:
 		return
 	var best := -1
 	var best_j := 0.0
 	var speed := state.linear_velocity.length()
 	for i in n:
-		if speed > 4.5 and mass > 25.0:
-			var col := state.get_contact_collider_object(i)
-			if col is Player:
+		var col := state.get_contact_collider_object(i)
+		if tree_falling and not is_instance_valid(col):
+			continue
+		if col is Player:
+			if allow_impact and speed > 4.5 and mass > 25.0:
 				# Heavy fast pieces hurt (falling walls, cars).
-				(col as Player).damage.call_deferred(clampf((speed - 4.5) * mass / 35.0, 0.0, 120.0))
+				var amount := clampf((speed - 4.5) * mass / 35.0, 0.0, 120.0)
+				(col as Player).damage_from_impact.call_deferred(amount, self)
 				_last_impact_ms = now
 				return
+			continue
 		var j := state.get_contact_impulse(i).length()
-		if j > best_j:
+		if best < 0 or j > best_j:
 			best_j = j
 			best = i
 	if best < 0:
 		return
 	var dv := best_j / mass
-	if dv < IMPACT_MIN_DV or best_j < 25.0:
+	if tree_contact:
+		tree_falling = false
+		VoxelWorld.instance.tree_landed.call_deferred(state.get_contact_collider_position(best))
+	if not allow_impact or dv < IMPACT_MIN_DV or best_j < 25.0:
 		return
 	_last_impact_ms = now
 	VoxelWorld.instance.queue_impact(self, state.get_contact_collider_object(best),
@@ -362,7 +408,7 @@ func carve_batch(points: Array[Vector3], radius: float, power: float) -> int:
 	var mn := Vector3i(1 << 30, 1 << 30, 1 << 30)
 	var mx := Vector3i(-1, -1, -1)
 	for p in points:
-		var res: Dictionary = volume.carve_sphere(to_voxel(p), radius / VS, power, 0.25, 0.0, 0, randi())
+		var res: Dictionary = volume.carve_sphere(to_voxel(p), radius / VS, minf(power, VoxMat.UNBREAKABLE_STRENGTH * 0.1), 0.25, 0.0, 0, randi())
 		if res.count > 0:
 			total += res.count
 			mn = mn.min(res.min)

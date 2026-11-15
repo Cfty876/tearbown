@@ -6,5 +6,9 @@ const DYNAMIC := 2       # free voxel bodies
 const DEBRIS := 4        # tiny debris cubes
 const PLAYER := 8
 const PROJECTILE := 16
+const CLOTH := 32
+const SECRET := 64
+const NPC := 128
+const BOOMBOX := 256
 
 const SOLID := STATIC | DYNAMIC
