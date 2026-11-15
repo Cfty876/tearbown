@@ -199,7 +199,7 @@ func show_result(seekers_won: bool) -> void:
 	line.offset_top = -8.0
 	line.scale.x = 0.0
 	_tween.parallel().tween_property(line, "scale:x", 1.0, duration + 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	if not OS.has_feature("web"):
+	if GameState.level != GameState.LEVEL_HIDE:
 		_tween.tween_interval(1.55)
 		_tween.tween_callback(func():
 			splash.queue_free()
