@@ -481,23 +481,32 @@ func combat_trace(source: Player, from: Vector3, to: Vector3) -> Dictionary:
 	return best
 
 
-func combat_blast(source: Player, at: Vector3, radius: float, attack_round: int) -> void:
+func combat_blast(source: Player, at: Vector3, radius: float, attack_round: int, weapon: int) -> void:
 	if not attack_is_current(attack_round) or _side_of(source) < 0:
 		return
 	for target in _combat_targets(_side_of(source)):
 		if HideCombat.blast_reaches(world, at, target.feet, radius):
-			_damage_from_side(_side_of(source), int(target.side))
+			_damage_from_side(_side_of(source), int(target.side), weapon, at)
 
 
-func combat_damage(source: Player, target: int) -> void:
+func combat_damage(source: Player, target: int, weapon: int, origin: Vector3) -> void:
 	if can_attack(source):
-		_damage_from_side(_side_of(source), target)
+		_damage_from_side(_side_of(source), target, weapon, origin)
 
 
-func _damage_from_side(side: int, target: int) -> void:
+func _damage_from_side(side: int, target: int, weapon: int, origin: Vector3) -> void:
 	if _phase != "seek" or target < 0 or target >= _health.size() or not opponents(side, target) or _health[target] <= 0:
 		return
 	_health[target] = maxi(0, _health[target] - HideCombat.HIT)
+	var victim := _player_for(target)
+	var at := victim.global_position if is_instance_valid(victim) else origin
+	if target == RoomRules.BOT_SIDE and is_instance_valid(_bot) and is_instance_valid(_bot.bot):
+		at = _bot.bot.global_position
+	var push := (at - origin).normalized()
+	var finishing := _health[target] == 0
+	_show_combat_impact(side, target, weapon, push, finishing)
+	WebSession.send({"k": "combat_hit", "from": side, "target": target, "weapon": weapon,
+		"push": _pack(push), "finish": finishing, "round": _round})
 	if target == RoomRules.BOT_SIDE and is_instance_valid(_bot):
 		_bot._leave_cover()
 		_bot._stand_until = _bot.elapsed
@@ -513,6 +522,31 @@ func _damage_from_side(side: int, target: int) -> void:
 			_caught_side(target)
 	_sync_local_health()
 	_send_state()
+
+
+func _show_combat_impact(side: int, target: int, weapon: int, push: Vector3, finishing: bool) -> void:
+	if target < 0 or target >= RoomRules.SIDES or not push.is_finite():
+		return
+	if side == WebSession.local_side and is_instance_valid(hud):
+		hud.confirm_hit(finishing)
+	var profile := HideCombat.reaction(weapon)
+	var avatar: VoxelAvatar
+	if target == WebSession.local_side:
+		player.hurt = maxf(player.hurt, 0.48 if finishing else 0.30)
+		player.shake(profile.z)
+		world.sfx.play_ui("hurt", -12.0)
+		avatar = player.avatar
+	elif target == RoomRules.BOT_SIDE:
+		if is_instance_valid(_bot):
+			avatar = _bot.bot
+		elif _bot_replica != null:
+			avatar = _bot_replica.avatar
+	else:
+		var actor: RoomActor = _actors.get(target)
+		if actor != null:
+			avatar = actor.avatar
+	if is_instance_valid(avatar):
+		avatar.flinch(profile.x, profile.y, push)
 
 
 func _restore_seekers() -> void:
@@ -1244,6 +1278,11 @@ func _find_door(data: Dictionary) -> DistrictDoor:
 
 func _receive_host(data: Dictionary, kind: String, side: int) -> void:
 	match kind:
+		"combat_hit":
+			if side == 0 and _phase == "seek":
+				_show_combat_impact(int(data.get("from", -1)), int(data.get("target", -1)),
+					int(data.get("weapon", -1)), _unpack(data.get("push")), bool(data.get("finish", false)))
+
 		"map_ping", "horn":
 			_receive_signal(data, kind, side)
 		"district_voice":

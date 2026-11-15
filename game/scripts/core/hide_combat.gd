@@ -4,6 +4,16 @@ extends RefCounted
 const HIT := 20
 const STUN_TIME := 5.0
 
+# Длительность, амплитуда видимой реакции и встряска камеры.
+static func reaction(weapon: int) -> Vector3:
+	match weapon:
+		PlayerTools.HAMMER: return Vector3(0.37, 0.41, 0.40)
+		PlayerTools.SHOTGUN: return Vector3(0.24, 0.27, 0.34)
+		PlayerTools.PIPEBOMB: return Vector3(0.43, 0.31, 0.46)
+		PlayerTools.ROCKET: return Vector3(0.48, 0.39, 0.50)
+		_: return Vector3(0.30, 0.25, 0.34)
+
+
 # Две перекрывающиеся сферы повторяют торс и голову воксельного персонажа.
 static func contact(from: Vector3, to: Vector3, feet: Vector3, crouched: bool) -> Vector3:
 	var line := to - from

@@ -259,7 +259,7 @@ func damage_at(obj: VoxelObject, pos: Vector3, radius: float, power: float, impu
 	return n
 
 
-func explode(pos: Vector3, radius: float, power: float, source: Player = null, attack_round := -1) -> void:
+func explode(pos: Vector3, radius: float, power: float, source: Player = null, attack_round := -1, weapon := PlayerTools.PIPEBOMB) -> void:
 	if network_role == 2:
 		return
 	var room := get_parent().get_node_or_null("NetworkHide") as NetworkHide
@@ -276,12 +276,14 @@ func explode(pos: Vector3, radius: float, power: float, source: Player = null, a
 		player.shake(clampf(radius * 1.6 / maxf(d, 1.0), 0.0, 1.0))
 
 	if is_instance_valid(source):
-		if is_instance_valid(population):
-			population.weapon_blast(pos, radius * 1.8, source)
+		# A disguised player is resolved through their NPC only. Hit other players first.
 		if is_instance_valid(room):
-			room.combat_blast(source, pos, radius * 1.8, attack_round)
+			room.combat_blast(source, pos, radius * 1.8, attack_round, weapon)
 		elif is_instance_valid(source.bot_hunt):
-			source.bot_hunt.combat_blast(pos, radius * 1.8)
+			source.bot_hunt.combat_blast(pos, radius * 1.8, weapon)
+		if is_instance_valid(population):
+			population.weapon_blast(pos, radius * 1.8, source, weapon)
+
 	if is_instance_valid(secrets):
 		secrets.blast(pos, radius)
 	for obj in objects_in_sphere(pos, radius * 1.15):

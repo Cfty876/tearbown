@@ -6,7 +6,7 @@ var player: Player
 var world: VoxelWorld
 var quality_name := ""
 
-var _cross: Control
+var _cross: Crosshair
 var _inventory: ToolInventory
 var _hint: Label
 var _interaction_prompt: InteractionPrompt
@@ -177,6 +177,11 @@ func _unhandled_input(e: InputEvent) -> void:
 		_help.visible = not _help.visible
 	elif e.is_action_pressed("toggle_stats"):
 		_show_stats = not _show_stats
+
+
+func confirm_hit(finishing: bool) -> void:
+	_cross.impact(finishing)
+	world.sfx.play_ui("click", -12.0 if finishing else -16.0)
 
 
 func _process(delta: float) -> void:
@@ -358,6 +363,23 @@ class Crosshair:
 				grab_hint = value
 				queue_redraw()
 
+	var _hit := 0.0
+	var _finishing := false
+	var _animation: Tween
+
+	func impact(finishing: bool) -> void:
+		if _animation != null:
+			_animation.kill()
+		_finishing = finishing
+		_set_impact(1.0)
+		_animation = create_tween()
+		_animation.tween_interval(0.045)
+		_animation.tween_method(_set_impact, 1.0, 0.0, 0.26 if finishing else 0.17)
+
+	func _set_impact(value: float) -> void:
+		_hit = value
+		queue_redraw()
+
 	func _draw() -> void:
 		var c := Color(1, 1, 1, 0.85)
 		if grab_hint:
@@ -365,3 +387,13 @@ class Crosshair:
 		else:
 			draw_circle(Vector2.ZERO, 2.5, Color(0, 0, 0, 0.5))
 			draw_circle(Vector2.ZERO, 1.6, c)
+
+		if _hit > 0.0:
+			var color := Color("#ffd07b") if _finishing else Color("#f7fafc")
+			color.a = _hit
+			var distance := lerpf(13.0, 8.0, _hit)
+			for corner: Vector2 in [Vector2(-1, -1), Vector2(1, -1), Vector2(-1, 1), Vector2(1, 1)]:
+				var inner := corner * distance
+				var outer := corner * (distance + (7.0 if _finishing else 5.0))
+				draw_line(inner, outer, Color(0.06, 0.03, 0.01, _hit * 0.8), 4.2, true)
+				draw_line(inner, outer, color, 2.2, true)

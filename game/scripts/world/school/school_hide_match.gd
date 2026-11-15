@@ -2029,15 +2029,18 @@ func combat_trace(from: Vector3, to: Vector3) -> Vector3:
 	return HideCombat.contact(from, to, bot.global_position, hidden_spot >= 0 or _quiet_step)
 
 
-func combat_blast(at: Vector3, radius: float) -> void:
+func combat_blast(at: Vector3, radius: float, weapon: int) -> void:
 	if phase == "seek" and HideCombat.blast_reaches(world, at, bot.global_position, radius):
-		take_weapon_hit()
+		take_weapon_hit(weapon, at)
 
 
-func take_weapon_hit() -> void:
+func take_weapon_hit(weapon: int, origin: Vector3) -> void:
 	if phase != "seek":
 		return
 	combat_health = maxi(0, combat_health - HideCombat.HIT)
+	var profile := HideCombat.reaction(weapon)
+	bot.flinch(profile.x, profile.y, (bot.global_position - origin).normalized())
+	hud.confirm_hit(combat_health == 0)
 	if combat_health == 0:
 		_finish(true)
 		return

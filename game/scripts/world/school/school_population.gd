@@ -297,17 +297,17 @@ func _set_seat(npc: SchoolNpc, side: int, feet: Vector3, direction: Vector3) -> 
 	_publish(event)
 
 
-func weapon_blast(at: Vector3, radius: float, source: Player) -> void:
+func weapon_blast(at: Vector3, radius: float, source: Player, weapon: int) -> void:
 	for npc in actors:
 		if not npc.removed and HideCombat.blast_reaches(world, at, npc.global_position, radius):
-			weapon_hit(npc, source)
+			weapon_hit(npc, source, weapon, at)
 
 
 func shotgun_hit(npc: SchoolNpc, source: Player) -> void:
-	weapon_hit(npc, source)
+	weapon_hit(npc, source, PlayerTools.SHOTGUN, source.global_position)
 
 
-func weapon_hit(npc: SchoolNpc, source: Player) -> void:
+func weapon_hit(npc: SchoolNpc, source: Player, weapon: int, origin: Vector3) -> void:
 	if world.network_role == 2 or npc.removed:
 		return
 	var shooter := local_side if source == world.player else int(source.get_meta("room_side", 1))
@@ -328,7 +328,7 @@ func weapon_hit(npc: SchoolNpc, source: Player) -> void:
 	if is_instance_valid(room):
 		if not room.opponents(shooter, victim):
 			return
-		room.combat_damage(source, victim)
+		room.combat_damage(source, victim, weapon, origin)
 		health = room.combat_hp(victim)
 	else:
 		health = maxf(0.0, health - Player.MAX_HEALTH * 0.25)

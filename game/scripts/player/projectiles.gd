@@ -66,7 +66,7 @@ class PipeBomb:
 		if fuse <= 0.0:
 			var p := global_position
 			queue_free()
-			VoxelWorld.instance.explode(p, blast_radius, blast_power, source, attack_round)
+			VoxelWorld.instance.explode(p, blast_radius, blast_power, source, attack_round, PlayerTools.PIPEBOMB)
 
 
 class Rocket:
@@ -141,7 +141,7 @@ class Rocket:
 				VoxelWorld.instance.secrets.hit_target(hit)
 			_detach_trail()
 			queue_free()
-			VoxelWorld.instance.explode(p, blast_radius, blast_power, source, attack_round)
+			VoxelWorld.instance.explode(p, blast_radius, blast_power, source, attack_round, PlayerTools.ROCKET)
 			return
 		global_position = to
 		if velocity.length_squared() > 0.01:

@@ -382,7 +382,7 @@ func _hammer_hit() -> void:
 	if hit.is_empty():
 		return
 	if hit.collider is SchoolNpc:
-		w.population.weapon_hit(hit.collider, player)
+		w.population.weapon_hit(hit.collider, player, HAMMER, from)
 		return
 	var obj := hit.collider as VoxelObject
 	if is_instance_valid(w.secrets) and w.secrets.hit_target(hit, false, player):
@@ -426,12 +426,12 @@ func _combat_impact(from: Vector3, to: Vector3, struck: Dictionary) -> bool:
 			var side := int(hit.side)
 			if not struck.has(side):
 				struck[side] = true
-				match_room.combat_damage(player, side)
+				match_room.combat_damage(player, side, current, from)
 			return true
 	elif is_instance_valid(player.bot_hunt) and player.bot_hunt.combat_trace(from, to).is_finite():
 		if not struck.has(0):
 			struck[0] = true
-			player.bot_hunt.take_weapon_hit()
+			player.bot_hunt.take_weapon_hit(current, from)
 		return true
 	return false
 
@@ -478,7 +478,11 @@ func _fire_shotgun() -> void:
 		if collider is SchoolNpc:
 			if not secret_hits.has(collider):
 				secret_hits[collider] = true
-				population.weapon_hit(collider, player)
+				var holder: int = collider.holder
+				if holder < 0 or not people_hit.has(holder):
+					population.weapon_hit(collider, player, SHOTGUN, from)
+					if holder >= 0:
+						people_hit[holder] = true
 			continue
 		if is_instance_valid(w.gadgets) and w.gadgets.is_dispenser_hit(hit):
 			if not secret_hits.has(collider):

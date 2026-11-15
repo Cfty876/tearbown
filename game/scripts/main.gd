@@ -191,6 +191,7 @@ func _ready() -> void:
 		round.player = player
 		round.world = world
 		round.pause_menu = pause_menu
+		round.hud = hud
 		round.transit = transit
 		round.weapons_enabled = true
 		if online and not compact:
@@ -198,7 +199,6 @@ func _ready() -> void:
 			player.tools.refresh_slots()
 		if school:
 			round.school = level
-			round.hud = hud
 		if compact:
 			round.starts.assign(HideLevel.SPAWNS)
 		elif school:

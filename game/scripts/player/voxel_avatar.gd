@@ -14,6 +14,10 @@ var _stride := 0.0
 var _run_blend := 0.0
 var _jacket: MeshInstance3D
 var first_person := false
+var _hit_duration := 0.0
+var _hit_remaining := 0.0
+var _hit_strength := 0.0
+var _hit_side := 0.0
 
 
 func _ready() -> void:
@@ -55,6 +59,25 @@ func pose(speed: float, pitch: float, crouch: bool, delta: float, sprint := fals
 		_arms[i].rotation.x = -stride * lerpf(0.43, 0.64, _run_blend) + 0.11 * _run_blend
 		_arms[i].rotation.z = -sign_value * 0.09 * _run_blend
 		_forearms[i].rotation.x = lerpf(0.08, 1.13, _run_blend) + maxf(0.0, stride) * 0.20 * _run_blend
+
+	if _hit_remaining > 0.0:
+		var elapsed := 1.0 - _hit_remaining / _hit_duration
+		var recoil := smoothstep(-0.08, 0.13, elapsed) * (1.0 - smoothstep(0.12, 1.0, elapsed)) * _hit_strength
+		_jacket.rotation.x += recoil * 0.70
+		_jacket.rotation.z += recoil * _hit_side
+		_head.rotation.x += recoil * 0.50
+		_head.rotation.z = recoil * _hit_side * 0.60
+		for i in 2:
+			_arms[i].rotation.x += recoil * (0.68 if i == 0 else 1.05)
+			_forearms[i].rotation.x += recoil * 0.60
+		_hit_remaining = maxf(0.0, _hit_remaining - delta)
+
+
+func flinch(duration: float, strength: float, push: Vector3) -> void:
+	_hit_duration = duration
+	_hit_remaining = duration
+	_hit_strength = strength
+	_hit_side = clampf(global_basis.x.normalized().dot(push), -1.0, 1.0)
 
 
 func seated(on: bool) -> void:
