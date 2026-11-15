@@ -36,6 +36,7 @@ const config = {
     || (process.env.BREAKPOINT_USE_VERCEL_ROOMS === "1" && process.env.VERCEL_URL
       ? "wss://" + process.env.VERCEL_URL + "/api/rooms" : ""),
   windows: manifest?.platforms.windows?.url || publicUrl("BREAKPOINT_WINDOWS_URL", "https:"),
+  windowsPatches: manifest?.platforms.windows?.patches || {},
   macos: manifest?.platforms.macos?.url || publicUrl("BREAKPOINT_MACOS_URL", "https:"),
   macosNotarized: manifest?.platforms.macos?.notarized === true,
   version: manifest?.version || "",
