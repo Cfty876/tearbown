@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 
-const VERSION = 4;
+const VERSION = 5;
 const BYTE_LIMIT = 2_100_000;
 const POSE_QUEUE = 128 * 1024;
 const RELIABLE_QUEUE = 3 * 1024 * 1024;
@@ -13,7 +13,7 @@ const MAX_PER_ADDRESS = 24;
 const MAX_ROOMS = 256;
 const LOBBY_TTL = 30 * 60_000;
 const ROUND_TTL = 6 * 60 * 60_000;
-const DESKTOP_MAPS = new Set(['proto', 'district', 'school']);
+const MAPS = new Set(['proto', 'district', 'school', 'hide']);
 
 export function createRelay() {
   const rooms = new Map();
@@ -67,11 +67,10 @@ export function createRelay() {
       fail(socket, 'Слишком много попыток. Попробуйте через минуту.');
       return;
     }
-    const web = msg.web === true;
     let room;
     if (msg.op === 'create') {
       const rules = msg.rules;
-      if (!rules || typeof rules !== 'object' || !(web ? rules.map === 'hide' : DESKTOP_MAPS.has(rules.map)) ||
+      if (!rules || typeof rules !== 'object' || !MAPS.has(rules.map) ||
           ![rules.seekers, rules.hiders].every(n => Number.isInteger(n) && n >= 1 && n <= 4) ||
           (rules.bot === true && rules.map !== 'school') || JSON.stringify(rules).length > 1800) {
         fail(socket, 'Неверные настройки комнаты.');
@@ -86,7 +85,7 @@ export function createRelay() {
       while (rooms.has('BP-' + key.slice(0, 4) + '-' + key.slice(4)));
       const code = 'BP-' + key.slice(0, 4) + '-' + key.slice(4);
       room = {
-        code, rules, web, members: new Map(), nextId: 2,
+        code, rules, members: new Map(), nextId: 2,
         limit: rules.seekers + rules.hiders - Number(rules.bot === true),
         started: false, expires: Date.now() + LOBBY_TTL,
       };
@@ -94,10 +93,6 @@ export function createRelay() {
       socket.roomId = 1;
     } else if (msg.op === 'join') {
       room = typeof msg.code === 'string' ? rooms.get(msg.code) : undefined;
-      if (room && room.web !== web) {
-        fail(socket, 'Этот код для другой версии игры. Запустите ту же версию, что и создатель.');
-        return;
-      }
       if (!room || room.started || room.members.size >= room.limit) {
         fail(socket, 'Онлайн-комната закрыта, заполнена или код неверен.');
         return;

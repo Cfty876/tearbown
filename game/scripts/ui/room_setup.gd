@@ -10,8 +10,6 @@ var _preview_caption: Label
 var _tabs: TabContainer
 var _map: OptionButton
 var _transport: OptionButton
-var _endpoint: LineEdit
-var _server_row: HBoxContainer
 var _hiders: SpinBox
 var _seekers: SpinBox
 var _hide: SpinBox
@@ -56,22 +54,13 @@ func _ready() -> void:
 	equipment.add_theme_constant_override("separation", 10)
 	_tabs.add_child(equipment)
 	if not submitted.is_valid():
-		_transport = _choice(overview, "Тип комнаты", ["Локальная сеть", "Онлайн"])
-		var help := MenuStyle.label("", 20, MenuStyle.MUTED)
+		var help := MenuStyle.label("Один код для браузера и приложения.", 20, MenuStyle.MUTED)
 		help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		if not OS.has_feature("web"):
+			_transport = _choice(overview, "Тип комнаты", ["Онлайн", "Локальная сеть"])
+			_transport.item_selected.connect(func(index: int):
+				help.text = "Один код для браузера и приложения." if index == 0 else "Для игроков в одной сети Wi-Fi или Ethernet.")
 		overview.add_child(help)
-		_server_row = _row(overview, "Сервер")
-		_endpoint = LineEdit.new()
-		_endpoint.custom_minimum_size.x = 305
-		_endpoint.max_length = 400
-		_endpoint.text = OnlineRooms.configured_url()
-		_endpoint.placeholder_text = "wss://…/rooms"
-		_server_row.add_child(_endpoint)
-		var update_transport := func(index: int):
-			_server_row.visible = index == 1
-			help.text = "Подключение из разных сетей по коду BP." if index == 1 else "Для игроков в одной сети Wi-Fi или Ethernet."
-		_transport.item_selected.connect(update_transport)
-		update_transport.call(0)
 
 	_map = _choice(game, "Карта", [])
 	for id: String in GameState.MAPS:
@@ -243,6 +232,6 @@ func _open() -> void:
 	if submitted.is_valid():
 		submitted.call(RoomRules.normalized(_active_map(), data))
 	elif is_instance_valid(_transport) and _transport.selected == 1:
-		WebSession.host_online(_active_map(), data, _endpoint.text)
-	else:
 		WebSession.host_lan(_active_map(), data)
+	else:
+		WebSession.host_online(_active_map(), data)

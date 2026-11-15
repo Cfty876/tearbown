@@ -36,13 +36,13 @@ test('health, room codes, start, directed traffic and disconnect', { timeout: 70
     const rules = { map: 'school', hiders: 1, seekers: 1, bot: false };
     stale.send({ op: 'create', version: 3, rules });
     assert.match((await stale.read('error')).message, /Версии/);
-    owner.send({ op: 'create', version: 4, rules });
-    other.send({ op: 'create', version: 4, rules });
+    owner.send({ op: 'create', version: 5, rules });
+    other.send({ op: 'create', version: 5, rules });
     const lobby = await owner.read('lobby');
     assert.match(lobby.code, /^BP-[0-9A-F]{4}-[0-9A-F]{4}$/);
     const isolated = await other.read('lobby');
     assert.notEqual(isolated.code, lobby.code);
-    guest.send({ op: 'join', version: 4, code: lobby.code });
+    guest.send({ op: 'join', web: true, version: 5, code: lobby.code });
     assert.deepEqual((await guest.read('lobby')).members, [1, 2]);
     assert.equal((await owner.read('lobby')).members.length, 2);
     owner.send({ op: 'start' });

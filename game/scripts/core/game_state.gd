@@ -11,17 +11,16 @@ const MAPS := {
 	LEVEL_DISTRICT: ["Дворы Заречья", "Пятиэтажки, дворы и проходные подъезды", "res://ui/map_district.jpg"],
 	LEVEL_PROTO: ["Полигон", "Дом, мастерские и зона испытаний", "res://ui/map_proto.jpg"],
 	LEVEL_SCHOOL: ["Школа № 120", "Сумерки в школьном квартале. Четыре этажа, стадион и подземелья", "res://ui/map_school.jpg"],
+	LEVEL_HIDE: ["Арена", "Компактная карта для быстрых раундов", "res://ui/map_pocket.jpg"],
 }
-
-const WEB_MAP := ["Арена", "Компактная карта для браузерных пряток", "res://ui/map_pocket.jpg"]
 
 
 func room_map_allowed(map: String) -> bool:
-	return map == LEVEL_HIDE if OS.has_feature("web") else (map == LEVEL_HIDE or MAPS.has(map))
+	return MAPS.has(map)
 
 
 func map_info(map: String) -> Array:
-	return WEB_MAP if map == LEVEL_HIDE else MAPS.get(map, MAPS[LEVEL_DISTRICT])
+	return MAPS.get(map, MAPS[LEVEL_DISTRICT])
 
 
 func developer_tools() -> bool:

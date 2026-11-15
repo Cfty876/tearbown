@@ -9,7 +9,7 @@ const redis = url ? new Redis(url, {
 }) : undefined;
 
 export default createRooms({ redis, commands: upstashCommands(url),
-  namespace: "breakpoint:rooms:" + (process.env.VERCEL_ENV || "development") + ":v1",
+  namespace: "breakpoint:rooms:" + (process.env.VERCEL_ENV || "development") + ":v2",
   onError: error => console.error("[breakpoint rooms]", error.name,
     error.message.startsWith("Redis ") ? error.message : ""),
 }).server;

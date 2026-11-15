@@ -63,7 +63,7 @@ func _terrain() -> void:
 	for i in 5:
 		layers.append(VoxMat.id("dirt"))
 	layers.append(VoxMat.id("rock"))
-	v.fill_columns(Vector3i.ZERO, Vector3i(SIZE, 0, SIZE), heights, GROUND, 11.0, layers, 0 if OS.has_feature("web") else 3)
+	v.fill_columns(Vector3i.ZERO, Vector3i(SIZE, 0, SIZE), heights, GROUND, 11.0, layers, 3)
 	_heights = heights
 	# gravel yard in the middle, dirt patches, asphalt road with markings
 	_patch(v, -32, -32, 32, 14, "gravel", 1)

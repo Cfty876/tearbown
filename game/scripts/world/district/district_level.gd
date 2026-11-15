@@ -17,7 +17,6 @@ const RIVER := [
 ]
 
 var world: VoxelWorld
-var _web := OS.has_feature("web")
 var spawn := Vector3(12, GY + 0.05, 48.0)
 var spawn_yaw := 0.0
 var rng := RandomNumberGenerator.new()
@@ -782,8 +781,8 @@ func _tree(x: float, z: float, kind: String) -> void:
 
 ## Scatters trees inside a zone wherever the occupancy grid is free.
 func _scatter(x0: float, z0: float, x1: float, z1: float, count: int, spacing: float, kinds: Array) -> void:
-	if _web:
-		count = maxi(2, roundi(count * 0.22))
+	if WebSession.connected:
+		count = maxi(2, roundi(count * 0.44))
 	var placed := 0
 	var tries := 0
 	while placed < count and tries < count * 25:

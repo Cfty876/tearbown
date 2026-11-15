@@ -3,15 +3,14 @@ import { createServer } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import { RoomStore, compareCursor } from "./room-store.js";
 
-const VERSION = 4;
+const VERSION = 5;
 const MAX_FRAME = 2_100_000;
-const MAPS = new Set(["proto", "district", "school"]);
+const MAPS = new Set(["proto", "district", "school", "hide"]);
 const CODE = /^BP-[0-9A-F]{4}-[0-9A-F]{4}$/;
 const TOKEN = /^[0-9a-f]{64}$/;
 const CURSOR = /^\d{1,14}-\d{1,8}$/;
 const errors = {
   missing: "Комната закрыта или время переподключения истекло.",
-  platform: "Для совместной игры с браузером создайте комнату на карте «Арена».",
   full: "Комната заполнена или игра уже началась.",
   sequence: "Не удалось восстановить порядок игровых событий.",
   media: "Передача кассет доступна в комнатах на двоих.",
@@ -250,14 +249,12 @@ export function createRooms({ redis, commands = redis, namespace, rotateMs = 245
           const rate = store.namespace + ":open:" + createHash("sha256").update(String(ip)).digest("hex");
           const limit = await commands.eval("local n=redis.call('INCR',KEYS[1]);if n==1 then redis.call('EXPIRE',KEYS[1],60) end;return n", 1, rate);
           if (limit > 60) return fail(ws, "Слишком много подключений. Повторите через минуту.", 1013);
-          const web = msg.web === true;
-          const platform = web ? "web" : "desktop";
           const client = { lease: randomBytes(18).toString("hex"), token: randomBytes(32).toString("hex") };
           let code = typeof msg.code === "string" ? msg.code : "";
           let result;
           if (msg.op === "create") {
             const rules = msg.rules;
-            if (!rules || !(rules.map === "hide" || (!web && MAPS.has(rules.map))) ||
+            if (!rules || !MAPS.has(rules.map) ||
                 ![rules.seekers, rules.hiders].every(n => Number.isInteger(n) && n >= 1 && n <= 4) ||
                 (rules.bot === true && rules.map !== "school") || JSON.stringify(rules).length > 1800) {
               return fail(ws, "Неверные настройки комнаты.");
@@ -266,18 +263,18 @@ export function createRooms({ redis, commands = redis, namespace, rotateMs = 245
               const id = randomBytes(4).toString("hex").toUpperCase();
               code = "BP-" + id.slice(0, 4) + "-" + id.slice(4);
               result = await store.run(code, "create", client, JSON.stringify({
-                rules, web, limit: rules.seekers + rules.hiders - Number(rules.bot === true),
+                rules, limit: rules.seekers + rules.hiders - Number(rules.bot === true),
                 next: 2, started: false, expires: Date.now() + 1_800_000,
               }));
               if (!result.error) break;
             }
           } else if (CODE.test(code) && msg.op === "join") {
-            result = await store.run(code, "join", client, platform);
+            result = await store.run(code, "join", client);
           } else if (CODE.test(code) && msg.op === "resume" &&
               Number.isSafeInteger(msg.id) && TOKEN.test(msg.token) && CURSOR.test(msg.cursor)) {
             client.id = msg.id;
             client.token = msg.token;
-            result = await store.run(code, "resume", client, platform);
+            result = await store.run(code, "resume", client);
           } else return fail(ws, "Проверьте код комнаты.");
           if (result?.error) return report(ws, result.error);
           if (ws.readyState === WebSocket.OPEN) {

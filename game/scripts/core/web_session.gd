@@ -8,7 +8,7 @@ signal transport_restored
 
 const LAN_PORT := 47840
 const MEDIA_CHANNEL := 2
-const ROOM_VERSION := 4
+const ROOM_VERSION := 5
 var connected := false
 var is_host := false
 var code := ""
@@ -27,7 +27,6 @@ var _auto_start := false
 var _rejected := ""
 var _online: OnlineRooms
 var _online_id := 0
-var _online_url := ""
 var _online_media_at := 0
 
 
@@ -118,7 +117,6 @@ func leave() -> void:
 	local_side = 0
 	_auto_start = false
 	_online_id = 0
-	_online_url = ""
 	_online_media_at = 0
 	if _online != null:
 		_online.stop()
@@ -166,15 +164,13 @@ func _open_online(command: Dictionary, endpoint: String) -> void:
 		_status("Сервер комнат пока недоступен." if OS.has_feature("web") else "Введи WSS-адрес сервера комнат.")
 		return
 	command["version"] = ROOM_VERSION
-	command["web"] = OS.has_feature("web")
 	var transport := OnlineRooms.new()
 	if transport.connect_room(url, command) != OK:
 		_status("Не удалось открыть соединение с сервером комнат.")
 		return
 	_online = transport
-	_online_url = url
 	last_error = ""
-	_join_deadline = Time.get_ticks_msec() + 12000
+	_join_deadline = Time.get_ticks_msec() + 24000
 	_status("Подключаемся к серверу комнат…")
 
 
@@ -208,8 +204,6 @@ func _receive_online(message: Dictionary) -> void:
 			is_host = _online_id == 1
 			rules = RoomRules.normalized(map, options)
 			_join_deadline = 0
-			if not joined and not OS.has_feature("web") and _online_url.begins_with("wss://"):
-				OnlineRooms.remember_url(_online_url)
 			joined = true
 			if operation == "start" or (operation == "resumed" and bool(message.get("started", false))):
 				roster.assign(_members)

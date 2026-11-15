@@ -96,9 +96,7 @@ func _home() -> void:
 	actions.add_theme_constant_override("separation", 12)
 	box.add_child(actions)
 	actions.add_child(MenuStyle.button("Начать игру", _maps, true, 78))
-	var create := _create_web_room if OS.has_feature("web") else _create_room
-	actions.add_child(MenuStyle.button("Создать комнату", create, false, 72))
-	actions.add_child(MenuStyle.button("Войти по коду", _lobby, false, 54))
+	actions.add_child(MenuStyle.button("Создать комнату", _create_room, false, 72))
 	actions.add_child(MenuStyle.button("Настройки", _settings, false, 62))
 	if DesktopRelease.supported():
 		_update_entry = MenuStyle.button("Обновления", _updates, false, 52)
@@ -169,7 +167,10 @@ func _update_release_view() -> void:
 
 func _maps() -> void:
 	WebSession.leave()
-	var box := _interior("ИГРА   /   01", "Выбери карту", "Три локации. На следующем экране можно выбрать режим.", _home)
+	var box := _interior("ИГРА   /   01", "Выбери карту", "Выбери локацию или подключись к комнате друга.", _home)
+	var join := MenuStyle.button("Войти по коду", _lobby, false, 52)
+	join.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	box.add_child(join)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 25)
 	box.add_child(row)
@@ -186,10 +187,12 @@ func _maps() -> void:
 		card.add_child(body)
 		body.add_child(MenuStyle.label("ЛОКАЦИЯ   /   0%d" % index, 18, MenuStyle.GOLD))
 		var photo := MenuStyle.cover(MenuStyle.image(map[2]))
-		photo.custom_minimum_size.y = 295
+		photo.custom_minimum_size.y = 255
 		body.add_child(photo)
-		body.add_child(MenuStyle.label(map[0], 38))
-		body.add_child(MenuStyle.label(map[1], 20, MenuStyle.MUTED))
+		body.add_child(MenuStyle.label(map[0], 30))
+		var caption := MenuStyle.label(map[1], 20, MenuStyle.MUTED)
+		caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		body.add_child(caption)
 		_space(body, 4)
 		body.add_child(MenuStyle.button("Выбрать карту", func(): _modes(id), true))
 	var tween := create_tween()
@@ -253,7 +256,7 @@ func _mode_card(parent: HBoxContainer, badge: String, title: String, info: Strin
 func _lobby() -> void:
 	var web := OS.has_feature("web")
 	var box := _interior("ПРЯТКИ   /   ПОДКЛЮЧЕНИЕ", "Войти в комнату",
-		"Введи код комнаты. Коды онлайн-комнат начинаются с BP.", _home)
+		"Введи код комнаты. Коды онлайн-комнат начинаются с BP.", _maps)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 16)
 	box.add_child(row)
@@ -264,37 +267,17 @@ func _lobby() -> void:
 	address.add_theme_font_size_override("font_size", 29)
 	address.add_theme_stylebox_override("normal", MenuStyle.panel(MenuStyle.PANEL))
 	row.add_child(address)
-	var endpoint := LineEdit.new()
-	endpoint.placeholder_text = "Адрес онлайн-сервера, wss://…/rooms"
-	endpoint.text = OnlineRooms.configured_url()
-	endpoint.max_length = 400
-	endpoint.custom_minimum_size.y = 55
-	endpoint.hide()
-	box.add_child(endpoint)
-	address.text_changed.connect(func(value: String): endpoint.visible = not web and value.strip_edges().to_upper().begins_with("BP"))
-	var join := func(): WebSession.join_room(address.text, endpoint.text)
+	var join := func(): WebSession.join_room(address.text)
 	row.add_child(MenuStyle.button("Подключиться", join, true, 65))
 	address.text_submitted.connect(func(_value: String): join.call())
-	endpoint.text_submitted.connect(func(_value: String): join.call())
 	address.grab_focus()
 	_status = MenuStyle.label(WebSession.last_error, 24, MenuStyle.GOLD)
-	box.add_child(_status)
-
-
-func _create_web_room() -> void:
-	WebSession.leave()
-	var box := _interior("ПРЯТКИ   /   БРАУЗЕР", "Арена", "Прятки вдвоём. Создай комнату и отправь код другу.", _home)
-	box.add_child(MenuStyle.button("Создать онлайн-комнату", func():
-		WebSession.host_online(GameState.LEVEL_HIDE, {"seek": 105}), true, 65))
-	_status = MenuStyle.label("", 24, MenuStyle.GOLD)
 	box.add_child(_status)
 
 
 func _create_room() -> void:
 	WebSession.leave()
 	var box := _interior("ПРЯТКИ   /   СОЗДАНИЕ", "Создать комнату", "", _home)
-	box.add_child(MenuStyle.button("Арена · игра с браузером", func():
-		WebSession.host_online(GameState.LEVEL_HIDE, {"seek": 105}), true, 64))
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED

@@ -4,7 +4,6 @@ extends RefCounted
 const MAX_FRAME := 2100000
 const POSE_BACKLOG := 131072
 const TOTAL_BACKLOG := 3145728
-const CONFIG_PATH := "user://online.cfg"
 const DEFAULT_RELAY := "wss://tearbown.vercel.app/api/rooms"
 
 var socket := WebSocketPeer.new()
@@ -19,6 +18,7 @@ var _resume_until := 0
 var _retry_at := 0
 var _connect_until := 0
 var _attempts := 0
+var _initial_retry := true
 var _sequence := 0
 var _outbox: Array[Dictionary] = []
 var _outbox_bytes := 0
@@ -28,15 +28,12 @@ var _sent_through := 0
 static func configured_url() -> String:
 	if OS.has_feature("web"):
 		var site := JavaScriptBridge.get_interface("BreakpointConfig")
-		return str(site.relay) if site != null else ""
+		var configured := str(site.relay) if site != null else ""
+		return configured if valid_url(configured) else DEFAULT_RELAY
 	var env := OS.get_environment("BREAKPOINT_RELAY_URL").strip_edges()
 	if valid_url(env):
 		return env
 	var config := ConfigFile.new()
-	if config.load(CONFIG_PATH) == OK:
-		var saved := str(config.get_value("online", "url", "")).strip_edges()
-		if valid_url(saved):
-			return saved
 	var executable_dir := OS.get_executable_path().get_base_dir()
 	var candidates := [executable_dir.path_join("online.cfg"), "res://online.cfg"]
 	if OS.get_name() == "macOS":
@@ -55,12 +52,6 @@ static func valid_url(value: String) -> bool:
 	return (value.begins_with("wss://") and value.length() > 6) or value.begins_with("ws://127.0.0.1:") or value.begins_with("ws://localhost:")
 
 
-static func remember_url(value: String) -> void:
-	var config := ConfigFile.new()
-	config.set_value("online", "url", value)
-	config.save(CONFIG_PATH)
-
-
 func connect_room(url: String, command: Dictionary) -> Error:
 	_url = url
 	pending = command
@@ -70,7 +61,7 @@ func connect_room(url: String, command: Dictionary) -> Error:
 func _dial() -> Error:
 	socket = WebSocketPeer.new()
 	_handshake_sent = false
-	_connect_until = Time.get_ticks_msec() + 5000
+	_connect_until = Time.get_ticks_msec() + (5000 if reconnecting else 8000)
 	socket.inbound_buffer_size = MAX_FRAME + 4096
 	socket.outbound_buffer_size = TOTAL_BACKLOG + 4096
 	socket.max_queued_packets = 256
@@ -147,18 +138,24 @@ func poll() -> Array[Dictionary]:
 		return result
 	if reconnecting and not active and now >= _retry_at:
 		_attempts += 1
-		pending = _identity.merged({"cursor": _cursor, "version": WebSession.ROOM_VERSION, "web": OS.has_feature("web")})
+		pending = _identity.merged({"cursor": _cursor, "version": WebSession.ROOM_VERSION})
 		if _dial() != OK:
 			_lost(result)
 	if not active:
 		return result
 	socket.poll()
-	if reconnecting and now >= _connect_until and socket.get_ready_state() == WebSocketPeer.STATE_CONNECTING:
+	var connecting := socket.get_ready_state() == WebSocketPeer.STATE_CONNECTING
+	var closed := socket.get_ready_state() == WebSocketPeer.STATE_CLOSED
+	if (connecting and now >= _connect_until) or closed:
+		# Повторяем только транспортное подключение, пока запрос ещё не отправлен.
+		if not reconnecting and _initial_retry and not _handshake_sent:
+			_initial_retry = false
+			socket.close()
+			if _dial() == OK:
+				return result
 		_lost(result)
 		return result
 	match socket.get_ready_state():
-		WebSocketPeer.STATE_CLOSED:
-			_lost(result)
 		WebSocketPeer.STATE_OPEN:
 			if not _handshake_sent:
 				if not OS.has_feature("web"):

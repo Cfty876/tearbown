@@ -73,10 +73,10 @@ test("Redis routes a room across Vercel instances and replays lost destruction a
     const [first, second] = instances.map(instance => instance.server);
     const host = await client(first);
     const guest = await client(second);
-    host.send({ op: "create", version: 4, rules: { map: "school", hiders: 1, seekers: 1 } });
+    host.send({ op: "create", version: 5, rules: { map: "school", hiders: 1, seekers: 1 } });
     const lobby = await host.read("lobby");
     assert.match(lobby.code, /^BP-[A-F0-9]{4}-[A-F0-9]{4}$/);
-    guest.send({ op: "join", version: 4, code: lobby.code });
+    guest.send({ op: "join", web: true, version: 5, code: lobby.code });
     const identity = await guest.read("lobby");
     assert.deepEqual(identity.members, [1, 2]);
     await host.read("lobby", entry => entry.members.length === 2);
@@ -96,7 +96,7 @@ test("Redis routes a room across Vercel instances and replays lost destruction a
     await host.read("ack", ack => ack.sequence === 3);
     const other = await client(first);
     const resume = { op: "resume", code: lobby.code, id: identity.id, token: identity.token,
-      version: 4, cursor: before.cursor };
+      web: true, version: 5, cursor: before.cursor };
     other.send(resume);
     const resumed = await other.read("resumed");
     assert.equal(resumed.started, true);
