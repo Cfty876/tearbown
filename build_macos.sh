@@ -15,12 +15,12 @@ cmake -S "$root/native" -B "$out/native" -DCMAKE_BUILD_TYPE=Release \
   "-DGODOTCPP_BUILD_PROFILE=$root/native/web-profile.json"
 cmake --build "$out/native" --config Release --target voxcore --parallel 4
 lib="$out/native/out/libvoxcore.dylib"
-lipo -verify_arch arm64 x86_64 "$lib"
+lipo "$lib" -verify_arch arm64 x86_64
 cp "$lib" "$out/project/bin/libvoxcore.dylib"
 "$GODOT_BIN" --headless --editor --path "$out/project" --import --quit
 app="$out/BREAKPOINT.app"
 "$GODOT_BIN" --headless --path "$out/project" --export-release macOS "$app"
-lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/BREAKPOINT"
+lipo "$app/Contents/MacOS/BREAKPOINT" -verify_arch arm64 x86_64
 
 notarized=0
 if [[ -n "${BREAKPOINT_CODESIGN_ID:-}" && -n "${BREAKPOINT_NOTARY_PROFILE:-}" ]]; then

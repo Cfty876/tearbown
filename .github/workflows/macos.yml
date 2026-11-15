@@ -11,6 +11,9 @@ on:
       - 'tools/stage_release.py'
 permissions:
   contents: read
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: macos-15
