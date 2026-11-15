@@ -29,7 +29,8 @@ func _ready() -> void:
 	if editor:
 		_actions.add_child(MenuStyle.button("Режим правок", _open_editor, false, 66))
 	_actions.add_child(MenuStyle.button("Главное меню", GameState.to_menu, false, 66))
-	_actions.add_child(MenuStyle.button("Выход", GameState.exit_game, false, 66))
+	if not OS.has_feature("web"):
+		_actions.add_child(MenuStyle.button("Выход", GameState.exit_game, false, 66))
 
 
 func _open_editor() -> void:
@@ -80,7 +81,7 @@ func toggle() -> void:
 		_close_settings()
 	get_tree().paused = on and not WebSession.connected
 	_panel.visible = on
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if on or touch_mode else Input.MOUSE_MODE_CAPTURED
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if on or touch_mode or OS.has_feature("web") else Input.MOUSE_MODE_CAPTURED
 
 
 func is_open() -> bool:

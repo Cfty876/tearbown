@@ -123,7 +123,7 @@ func _ready() -> void:
 	_apply_quality()
 	get_window().size_changed.connect(_apply_resolution)
 	set_process(DisplayServer.get_name() != "headless" and not OS.has_feature("web") and not args.has("bench"))
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if player.touch_mode else Input.MOUSE_MODE_CAPTURED
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if player.touch_mode or OS.has_feature("web") else Input.MOUSE_MODE_CAPTURED
 	if district:
 		transit = DistrictTransit.new()
 		transit.player = player
