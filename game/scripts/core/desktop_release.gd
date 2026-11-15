@@ -109,7 +109,7 @@ func _report_installation() -> void:
 		"operation": "check" if installation_enabled else "remove",
 		"platform": OS.get_name(), "version": version(), "token": _installation_token,
 	}
-	_installation_pending = _installation_request.request(INSTALLATIONS, ["Content-Type: application/json"],
+	_installation_pending = _installation_request.request(_publisher_url(INSTALLATIONS), ["Content-Type: application/json"],
 		HTTPClient.METHOD_POST, JSON.stringify(data)) == OK
 	installation_status = "Подключаемся…" if _installation_pending else "Реестр временно недоступен."
 	changed.emit()
@@ -137,6 +137,15 @@ func _installation_reply(result: int, response: int, _headers: PackedStringArray
 	changed.emit()
 
 
+static func _publisher_url(official: String) -> String:
+	# A workstation launcher can forward these two requests through a loopback bridge.
+	var origin := OS.get_environment("BREAKPOINT_PUBLISHER_LOOPBACK")
+	var loopback := "http://127.0.0.1:"
+	var port := origin.trim_prefix(loopback)
+	if origin.begins_with(loopback) and port.is_valid_int() and str(int(port)) == port and int(port) >= 1024 and int(port) <= 65535:
+		return origin + "/" + official.trim_prefix("https://tearbown.vercel.app/")
+	return official
+
 func version() -> String:
 	return str(ProjectSettings.get_setting("application/config/version", "0.0.0"))
 
@@ -152,7 +161,7 @@ func check(force := false) -> void:
 	_checked_at = now
 	_checking = true
 	_message("Проверяем обновления…")
-	if _check.request(MANIFEST) != OK:
+	if _check.request(_publisher_url(MANIFEST)) != OK:
 		_checking = false
 		_message("Сайт обновлений недоступен. Повтори попытку позже.")
 
