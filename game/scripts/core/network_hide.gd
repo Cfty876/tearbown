@@ -3,6 +3,7 @@ extends Node
 
 const FINISH_SECONDS := 5.0
 const MAX_VOLUME := 1000000
+const POSE_PAYLOAD_BYTES := 1150
 var player: Player
 var world: VoxelWorld
 var pause_menu: PauseMenu
@@ -783,23 +784,30 @@ func _send_pose() -> void:
 	if WebSession.is_host:
 		if world.secrets is SchoolSecrets:
 			packet["football"] = _xform(world.secrets.football)
-		_prop_tick = (_prop_tick + 1) % 2
-		if weapons_enabled and _prop_tick == 0:
-			var moving: Array = []
-			var count := world.objects.size()
-			for i in count:
-				_prop_cursor %= count
-				var object: VoxelObject = world.objects[_prop_cursor]
-				_prop_cursor += 1
-				if is_instance_valid(object) and not object.static_mode and not object.freeze:
-					moving.append([object.network_id, _xform(object)])
-					if moving.size() == 42:
-						break
-			if not moving.is_empty():
-				packet["dynamic"] = moving
 		if is_instance_valid(_bot) and is_instance_valid(_bot.bot):
 			packet["bot"] = [_pack(_bot.bot.global_position), _bot.bot.rotation.y, _bot._running_pose, _bot.hidden_spot, _bot.phase != "done"]
+		_prop_tick = (_prop_tick + 1) % 2
+		if weapons_enabled and _prop_tick == 0:
+			var moving := _moving_props(POSE_PAYLOAD_BYTES - JSON.stringify(packet).length() - 16)
+			if not moving.is_empty():
+				packet["dynamic"] = moving
 	WebSession.send(packet, false)
+
+
+func _moving_props(budget: int) -> Array:
+	var moving: Array = []
+	var count := world.objects.size()
+	for i in count:
+		_prop_cursor %= count
+		var object: VoxelObject = world.objects[_prop_cursor]
+		if is_instance_valid(object) and not object.static_mode and not object.freeze:
+			var item := [object.network_id, _xform(object)]
+			budget -= JSON.stringify(item).length() + 1
+			if budget < 0:
+				break
+			moving.append(item)
+		_prop_cursor += 1
+	return moving
 
 
 func _send_tool() -> void:
