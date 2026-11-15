@@ -11,10 +11,13 @@
 </head>
 <body>
   <canvas id="canvas" tabindex="0" aria-label="BREAKPOINT"></canvas>
+  <button id="fullscreen" class="fullscreen-toggle" type="button" aria-pressed="false" hidden>На весь экран</button>
+  <p id="fullscreen-status" class="fullscreen-status" role="status" hidden></p>
   <main id="loader" class="cover">
     <div class="card">
       <a href="/">← На сайт</a>
       <h1>BREAKPOINT</h1>
+      <p class="browser-version">Браузерная версия 1.1.2</p>
       <p>Запусти игру, чтобы открыть песочницу или сыграть в прятки по коду комнаты.</p>
       <button id="boot" type="button">Запустить игру</button>
       <progress id="progress" aria-label="Загрузка игры" hidden></progress>
@@ -24,6 +27,29 @@
   <script src="/release-config.js"></script>
   <script src="index.js"></script>
   <script>
+    const canvas = document.querySelector("#canvas");
+    const loader = document.querySelector("#loader");
+    const fullscreen = document.querySelector("#fullscreen");
+    const fullscreenStatus = document.querySelector("#fullscreen-status");
+    fullscreen.hidden = !document.fullscreenEnabled || !document.documentElement.requestFullscreen;
+    document.addEventListener("fullscreenchange", () => {
+      const active = Boolean(document.fullscreenElement);
+      fullscreen.textContent = active ? "Выйти из полного экрана" : "На весь экран";
+      fullscreen.setAttribute("aria-pressed", String(active));
+    });
+    fullscreen.addEventListener("click", async () => {
+      fullscreenStatus.hidden = true;
+      try {
+        if (document.fullscreenElement) await document.exitFullscreen();
+        else await document.documentElement.requestFullscreen();
+        if (loader.hidden) canvas.focus();
+      } catch (error) {
+        console.warn("Fullscreen", error);
+        fullscreenStatus.textContent = "Браузер не разрешил переключить полноэкранный режим.";
+        fullscreenStatus.hidden = false;
+      }
+    });
+
     const button = document.querySelector("#boot");
     const bar = document.querySelector("#progress");
     const status = document.querySelector("#boot-status");
@@ -32,8 +58,8 @@
       bar.hidden = false;
       status.textContent = "Загружаем игру…";
       try {
-        const engine = new Engine({"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":8042780,"index.wasm":1508095},"focusCanvas":true,"gdextensionLibs":["voxcore.wasm"],"godotPoolSize":4});
-        const canvas = document.querySelector("#canvas");
+        const engine = new Engine({"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":8042844,"index.wasm":1508095},"focusCanvas":true,"gdextensionLibs":["voxcore.wasm"],"godotPoolSize":4});
+
         await engine.startGame({
           canvas,
           onProgress(done, total) {
@@ -43,7 +69,7 @@
             }
           }
         });
-        document.querySelector("#loader").hidden = true;
+        loader.hidden = true;
         canvas.focus();
       } catch (error) {
         console.error(error);

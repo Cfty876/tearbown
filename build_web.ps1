@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory)][string]$Template,
     [Parameter(Mandatory)][string]$Wasm,
     [Parameter(Mandatory)][string]$Stage,
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version,
     [string]$Python = 'python'
 )
 
@@ -20,6 +21,15 @@ Copy-Item -LiteralPath $Wasm -Destination (Join-Path $Stage 'bin/voxcore.wasm')
 if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'game/bin/voxcore.dll') -Destination (Join-Path $Stage 'bin/voxcore.dll')
 }
+$project = Join-Path $Stage 'project.godot'
+$projectText = [IO.File]::ReadAllText($project)
+$versionPattern = '(?m)^config/version="(\d+\.\d+\.\d+)"'
+$currentVersion = [regex]::Match($projectText, $versionPattern)
+if (!$currentVersion.Success) { throw 'Godot project version is missing.' }
+if (!$Version) { $Version = $currentVersion.Groups[1].Value }
+[IO.File]::WriteAllText($project, [regex]::Replace($projectText, $versionPattern, 'config/version="' + $Version + '"'))
+$shell = Join-Path $Stage 'ui/web_shell.html'
+[IO.File]::WriteAllText($shell, [IO.File]::ReadAllText($shell).Replace('__BREAKPOINT_BROWSER_VERSION__', $Version))
 $preset = Join-Path $Stage 'export_presets.cfg'
 $config = Get-Content -LiteralPath $preset -Raw
 $pattern = '(?s)(\[preset\.1\.options\].*?custom_template/release=)""'

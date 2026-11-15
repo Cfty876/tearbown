@@ -14,4 +14,15 @@ a { color: #f2be88; }
 button { background: #edb47b; color: #1b180e; border: 0; font: 700 1rem Inter, sans-serif; padding: 14px 20px; cursor: pointer; }
 button:disabled { opacity: .6; cursor: wait; }
 a:focus-visible, button:focus-visible { outline: 3px solid #fff0ba; outline-offset: 5px; }
+.browser-version { margin: 12px 0 0; color: #d1c8bd; font-weight: 600; font-size: .875rem; }
+.fullscreen-toggle, .fullscreen-status { position: fixed; z-index: 2; right: max(14px, env(safe-area-inset-right)); }
+.fullscreen-toggle {
+  top: max(14px, env(safe-area-inset-top)); padding: 10px 14px; border: 1px solid #7e7668;
+  border-radius: 8px; background: #172124eb; color: #fff2df; font-size: .875rem;
+}
+.fullscreen-toggle:hover { background: #283639; }
+.fullscreen-status {
+  top: calc(max(14px, env(safe-area-inset-top)) + 46px); margin: 0;
+  max-width: min(30ch, 90vw); padding: 10px 14px; background: #172124; border-radius: 8px;
+}
 progress { display: block; width: min(100%, 460px); margin-top: 20px; accent-color: #edb47b; }

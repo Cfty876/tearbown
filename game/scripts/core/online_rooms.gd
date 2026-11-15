@@ -5,6 +5,7 @@ const MAX_FRAME := 2100000
 const POSE_BACKLOG := 131072
 const TOTAL_BACKLOG := 3145728
 const CONFIG_PATH := "user://online.cfg"
+const DEFAULT_RELAY := "wss://tearbown.vercel.app/api/rooms"
 
 var socket := WebSocketPeer.new()
 var pending := {}
@@ -45,7 +46,7 @@ static func configured_url() -> String:
 			var bundled := str(config.get_value("online", "url", "")).strip_edges()
 			if valid_url(bundled):
 				return bundled
-	return ""
+	return DEFAULT_RELAY
 
 
 static func valid_url(value: String) -> bool:
