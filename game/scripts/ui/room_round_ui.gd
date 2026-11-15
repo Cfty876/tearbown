@@ -47,7 +47,7 @@ func clear() -> void:
 	var active_player := room.player if is_instance_valid(room) else solo_player
 	if is_instance_valid(active_player):
 		active_player.navigation_menu_open = false
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if active_player.touch_mode else Input.MOUSE_MODE_CAPTURED
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if active_player.touch_mode or OS.has_feature("web") else Input.MOUSE_MODE_CAPTURED
 
 
 func _screen(color: Color) -> ColorRect:

@@ -620,7 +620,7 @@ func _close_library() -> void:
 	_panel.hide()
 	world.player.navigation_menu_open = false
 	world.player.tools._fire_blocked = true
-	if not world.player.touch_mode:
+	if not world.player.touch_mode and not OS.has_feature("web"):
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 

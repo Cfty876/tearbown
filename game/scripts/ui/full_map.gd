@@ -170,7 +170,7 @@ func close_map() -> void:
 	if is_instance_valid(player):
 		player.navigation_menu_open = false
 		player.tools._fire_blocked = true
-	Input.mouse_mode = _mouse_mode
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if OS.has_feature("web") else _mouse_mode
 
 
 func _refresh_landmarks() -> void:

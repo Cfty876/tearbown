@@ -132,7 +132,7 @@ func close_chat() -> void:
 		return
 	opened = false
 	player.navigation_menu_open = false
-	Input.mouse_mode = _previous_mouse
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if OS.has_feature("web") else _previous_mouse
 	_entry.release_focus()
 	_panel.hide()
 

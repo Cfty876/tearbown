@@ -265,7 +265,7 @@ func close() -> void:
 	set_process_input(false)
 	secrets.player.navigation_menu_open = false
 	secrets.player.camera.cull_mask = _world_cull_mask
-	Input.mouse_mode = _mouse_mode
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if OS.has_feature("web") else _mouse_mode
 
 
 func _toggle_chrome() -> void:

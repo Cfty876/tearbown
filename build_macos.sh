@@ -11,7 +11,8 @@ out="$(cd "$1" && pwd)"
 
 python3 "$root/tools/stage_release.py" macos "$out/project" --relay "${BREAKPOINT_RELAY_URL:-}"
 cmake -S "$root/native" -B "$out/native" -DCMAKE_BUILD_TYPE=Release \
-  "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+  "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
+  "-DGODOTCPP_BUILD_PROFILE=$root/native/web-profile.json"
 cmake --build "$out/native" --config Release --target voxcore --parallel 4
 lib="$out/native/out/libvoxcore.dylib"
 lipo -verify_arch arm64 x86_64 "$lib"
