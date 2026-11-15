@@ -1,0 +1,15 @@
+* { box-sizing: border-box; }
+body { margin: 0; background: #101820; color: #f1ece1; font: 16px/1.5 system-ui, sans-serif; }
+main { max-width: 1050px; margin: 0 auto; padding: 48px 24px; }
+h1 { font-size: clamp(28px, 5vw, 48px); margin: 24px 0; letter-spacing: -.03em; }
+a { color: #e9b882; }
+input, button { font: inherit; }
+button, input[type=password] { padding: 8px 12px; border: 1px solid #526675; border-radius: 5px; }
+input[type=password] { background: #19252e; color: #f1ece1; }
+button { color: #151b20; background: #e9b882; cursor: pointer; }
+button:disabled { color: #b9c4cc; background: #22303b; cursor: default; }
+p { color: #c2c9cc; }
+.actions { display: flex; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
+.listing { overflow-x: auto; background: #19252e; border: 1px solid #354651; }
+table { width: 100%; border-collapse: collapse; text-align: left; }
+th, td { padding: 10px 12px; border-bottom: 1px solid #354651; white-space: nowrap; }

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Установки BREAKPOINT</title>
+  <link rel="stylesheet" href="./installations.css">
+  <script type="module" src="./installations.js"></script>
+</head>
+<body>
+  <main>
+    <a href="/">BREAKPOINT</a>
+    <h1>Установки игры</h1>
+    <form id="login">
+      <label>Ключ администратора <input id="access" type="password" required autocomplete="off" spellcheck="false"></label>
+      <button>Войти</button>
+    </form>
+    <p id="message" role="status"></p>
+    <section id="devices" hidden>
+      <p>Список показывает установки, которые включили регистрацию и подключались за последние 30 дней.</p>
+      <div class="actions">
+        <button id="refresh" type="button">Обновить список</button>
+        <button id="send" type="button" disabled>Предложить обновление</button>
+      </div>
+      <div class="listing">
+        <table>
+          <thead><tr><th><input type="checkbox" id="all" aria-label="Выбрать текущую страницу"></th><th>Установка</th><th>Система</th><th>Версия</th><th>Последнее подключение</th><th>Обновление</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="actions">
+        <button id="back" type="button" disabled>Назад</button>
+        <button id="next" type="button" disabled>Далее</button>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

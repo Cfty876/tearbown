@@ -15,6 +15,8 @@ var _update_status: Label
 var _update_download: Button
 var _update_check: Button
 var _update_entry: Button
+var _installation_switch: CheckButton
+var _installation_info: Label
 
 
 func _ready() -> void:
@@ -152,6 +154,17 @@ func _updates() -> void:
 	row.add_child(_update_check)
 	row.add_child(_update_download)
 	row.add_child(MenuStyle.button("Страница загрузок", func(): OS.shell_open(DesktopRelease.DOWNLOADS), false, 54))
+	_installation_switch = CheckButton.new()
+	_installation_switch.text = "Получать адресные обновления"
+	_installation_switch.add_theme_font_size_override("font_size", 25)
+	_installation_switch.button_pressed = DesktopRelease.installation_enabled
+	_installation_switch.toggled.connect(DesktopRelease.set_installation_enabled)
+	box.add_child(_installation_switch)
+	var privacy := MenuStyle.label("В списке издателя появятся случайный код установки, система, версия игры и время подключения.", 20, MenuStyle.MUTED)
+	privacy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(privacy)
+	_installation_info = MenuStyle.label("", 21, MenuStyle.GOLD)
+	box.add_child(_installation_info)
 	_update_release_view()
 	DesktopRelease.check()
 
@@ -159,6 +172,11 @@ func _updates() -> void:
 func _update_release_view() -> void:
 	if is_instance_valid(_update_entry):
 		_update_entry.text = "Обновления" if DesktopRelease.candidate.is_empty() else "Доступно обновление"
+		if not DesktopRelease.offered_version.is_empty():
+			_update_entry.text = "Обновление от издателя"
+	if is_instance_valid(_installation_info):
+		_installation_info.text = DesktopRelease.installation_status
+		_installation_switch.set_pressed_no_signal(DesktopRelease.installation_enabled)
 	if is_instance_valid(_update_status):
 		_update_status.text = DesktopRelease.status
 		_update_download.disabled = DesktopRelease.busy() or DesktopRelease.candidate.is_empty()

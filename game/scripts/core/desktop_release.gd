@@ -2,6 +2,8 @@ extends Node
 
 signal changed
 const MANIFEST := "https://tearbown.vercel.app/desktop-release.json"
+const INSTALLATIONS := "https://tearbown.vercel.app/api/installations"
+const INSTALLATION_FILE := "user://installations.cfg"
 const DOWNLOADS := "https://tearbown.vercel.app/#downloads"
 const RELEASE_BASE := "https://github.com/Cfty876/tearbown/releases/download/"
 const LIMIT := 500 * 1024 * 1024
@@ -11,6 +13,13 @@ const WINDOWS_RELEASE_FILES := [
 	"libnobodywho-godot-x86_64-pc-windows-msvc-release.dll",
 	"COPYRIGHT-Godot.txt", "LICENSE-Godot.txt", "LICENSE-NobodyWho.txt",
 ]
+
+var installation_enabled := false
+var installation_status := ""
+var offered_version := ""
+var _installation_token := ""
+var _installation_request: HTTPRequest
+var _installation_pending := false
 
 var status := "Готово к проверке."
 var candidate := {}
@@ -44,11 +53,88 @@ func _ready() -> void:
 	_download.timeout = 420
 	_check.request_completed.connect(_checked)
 	_download.request_completed.connect(_downloaded)
+	_installation_request = HTTPRequest.new()
+	_installation_request.use_threads = true
+	_installation_request.timeout = 12
+	_installation_request.max_redirects = 0
+	_installation_request.body_size_limit = 2048
+	add_child(_installation_request)
+	_installation_request.request_completed.connect(_installation_reply)
+	var prefs := ConfigFile.new()
+	if prefs.load(INSTALLATION_FILE) == OK:
+		_installation_token = str(prefs.get_value("installations", "token", ""))
+		installation_enabled = bool(prefs.get_value("installations", "enabled", false)) and _valid_hash(_installation_token)
+	var poll := Timer.new()
+	poll.wait_time = 300.0
+	poll.autostart = true
+	poll.timeout.connect(_report_installation)
+	add_child(poll)
+	_report_installation.call_deferred()
 	set_process(false)
 
 
 func supported() -> bool:
 	return (OS.get_name() == "Windows" or OS.get_name() == "macOS") and not OS.has_feature("editor")
+
+
+func set_installation_enabled(enabled: bool) -> void:
+	if not supported() or enabled == installation_enabled:
+		return
+	var next_token := _installation_token
+	if enabled and not _valid_hash(next_token):
+		next_token = Crypto.new().generate_random_bytes(32).hex_encode()
+	if not _save_installation(enabled, next_token):
+		installation_status = "Не удалось сохранить выбор."
+		changed.emit()
+		return
+	installation_enabled = enabled
+	_installation_token = next_token
+	offered_version = ""
+	_installation_request.cancel_request()
+	_installation_pending = false
+	_report_installation()
+
+
+func _save_installation(enabled: bool, token: String) -> bool:
+	var prefs := ConfigFile.new()
+	prefs.set_value("installations", "enabled", enabled)
+	prefs.set_value("installations", "token", token)
+	return prefs.save(INSTALLATION_FILE) == OK
+
+
+func _report_installation() -> void:
+	if _installation_pending or not _valid_hash(_installation_token):
+		return
+	var data := {
+		"operation": "check" if installation_enabled else "remove",
+		"platform": OS.get_name(), "version": version(), "token": _installation_token,
+	}
+	_installation_pending = _installation_request.request(INSTALLATIONS, ["Content-Type: application/json"],
+		HTTPClient.METHOD_POST, JSON.stringify(data)) == OK
+	installation_status = "Подключаемся…" if _installation_pending else "Реестр временно недоступен."
+	changed.emit()
+
+
+func _installation_reply(result: int, response: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	_installation_pending = false
+	if result != HTTPRequest.RESULT_SUCCESS or response != 200:
+		installation_status = "Реестр временно недоступен. Игра повторит попытку."
+		changed.emit()
+		return
+	if not installation_enabled:
+		if _save_installation(false, ""):
+			_installation_token = ""
+		installation_status = "Установка удалена из списка."
+		changed.emit()
+		return
+	var data: Variant = JSON.parse_string(body.get_string_from_utf8())
+	var from_publisher := str(data.get("target", "")) if data is Dictionary else ""
+	var previous := offered_version
+	offered_version = from_publisher if _is_newer(from_publisher, version()) else ""
+	installation_status = "Установка зарегистрирована." if offered_version.is_empty() else "Издатель предложил обновление %s." % offered_version
+	if offered_version != previous and not offered_version.is_empty():
+		check(true)
+	changed.emit()
 
 
 func version() -> String:
