@@ -1,0 +1,17 @@
+{
+  "version": "1.1.0",
+  "tag": "breakpoint-v1.1.0",
+  "platforms": {
+    "windows": {
+      "url": "https://github.com/Cfty876/tearbown/releases/download/breakpoint-v1.1.0/BREAKPOINT-Windows-x64.zip",
+      "size": 103689427,
+      "sha256": "225948b83f77c7d44d40c5d489828d3709fcdbb156c50af1e8d99f1c0c19a2de"
+    },
+    "macos": {
+      "url": "https://github.com/Cfty876/tearbown/releases/download/breakpoint-v1.1.0/BREAKPOINT-macOS.zip",
+      "size": 67731401,
+      "sha256": "79121d3638e40ce4e0e14902a70fce4ad62d428c0381dba2f6a899bc66f9f28f",
+      "notarized": false
+    }
+  }
+}
