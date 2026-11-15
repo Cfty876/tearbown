@@ -17,7 +17,7 @@
     <div class="card">
       <a href="/">← На сайт</a>
       <h1>BREAKPOINT</h1>
-      <p class="browser-version">Браузерная версия 1.1.6</p>
+      <p class="browser-version">Браузерная версия 1.1.7</p>
       <p>Запусти игру, чтобы открыть песочницу или сыграть в прятки по коду комнаты.</p>
       <button id="boot" type="button">Запустить игру</button>
       <progress id="progress" aria-label="Загрузка игры" hidden></progress>
@@ -58,7 +58,7 @@
       bar.hidden = false;
       status.textContent = "Загружаем игру…";
       try {
-        const engine = new Engine({"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":8047228,"index.wasm":1508095},"focusCanvas":true,"gdextensionLibs":["voxcore.wasm"],"godotPoolSize":4});
+        const engine = new Engine({"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":true,"executable":"index","experimentalVK":false,"fileSizes":{"index.pck":8051068,"index.wasm":1508095},"focusCanvas":true,"gdextensionLibs":["voxcore.wasm"],"godotPoolSize":4});
 
         await engine.startGame({
           canvas,
