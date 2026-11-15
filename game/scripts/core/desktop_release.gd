@@ -6,6 +6,11 @@ const DOWNLOADS := "https://tearbown.vercel.app/#downloads"
 const RELEASE_BASE := "https://github.com/Cfty876/tearbown/releases/download/"
 const LIMIT := 500 * 1024 * 1024
 const CACHE_DIR := "user://updates"
+const WINDOWS_RELEASE_FILES := [
+	"BREAKPOINT.exe", "BREAKPOINT.pck", "voxcore.dll",
+	"libnobodywho-godot-x86_64-pc-windows-msvc-release.dll",
+	"COPYRIGHT-Godot.txt", "LICENSE-Godot.txt", "LICENSE-NobodyWho.txt",
+]
 
 var status := "Готово к проверке."
 var candidate := {}
@@ -15,7 +20,10 @@ var _checking := false
 var _working := false
 var _temporary := ""
 var _verified := ""
+var _verified_sha := ""
 var _verify: Thread
+var _compare: Thread
+var _patch := {}
 var _version := ""
 var _checked_at := -300000
 var _last_progress := -1
@@ -66,7 +74,7 @@ func check(force := false) -> void:
 func download() -> void:
 	if not supported() or candidate.is_empty() or busy():
 		return
-	if not _verified.is_empty() and FileAccess.file_exists(_verified):
+	if _verified == _archive_path() and _verified_sha == str(candidate.sha) and FileAccess.file_exists(_verified):
 		_open_archive()
 		return
 	var folder := ProjectSettings.globalize_path(CACHE_DIR)
@@ -110,17 +118,76 @@ func _checked(result: int, response: int, _headers: PackedStringArray, body: Pac
 	if not upstream is Dictionary or str(upstream.get("url", "")) != RELEASE_BASE + tag + "/" + filename:
 		_message("Обновление для этой системы ещё не опубликовано.")
 		return
-	var size := int(upstream.get("size", 0))
-	var sha := str(upstream.get("sha256", "")).to_lower()
-	if size <= 0 or size > LIMIT or sha.length() != 64 or not sha.is_valid_hex_number(false):
+	var full := _archive(upstream, filename)
+	if full.is_empty():
 		_message("Получены некорректные данные об архиве.")
 		return
-	if _version != latest or str(candidate.get("sha", "")) != sha:
+	if _version != latest:
 		_verified = ""
 	_version = latest
-	candidate = {"url": upstream.url, "size": size, "sha": sha, "name": filename}
-	_message("Доступна версия %s  ·  %.0f МБ" % [latest, size / 1048576.0])
+	candidate = full
+	if key == "windows":
+		var patches: Variant = upstream.get("patches")
+		if patches is Dictionary:
+			_patch = _read_patch(patches.get(version()), tag, int(full.size))
+			if not _patch.is_empty():
+				_compare = Thread.new()
+				var files: Dictionary = _patch.requires
+				var directory := OS.get_executable_path().get_base_dir()
+				if _compare.start(_matches_install.bind(directory, files)) == OK:
+					_checking = true
+					_message("Проверяем, какие файлы уже установлены…")
+					set_process(true)
+					return
+				_compare = null
+				_patch.clear()
+	_show_available()
 
+
+static func _archive(info: Dictionary, filename: String) -> Dictionary:
+	var bytes := int(info.get("size", 0))
+	var sha := str(info.get("sha256", "")).to_lower()
+	if bytes <= 0 or bytes > LIMIT or not _valid_hash(sha):
+		return {}
+	return {"url": info.url, "size": bytes, "sha": sha, "name": filename}
+
+
+func _read_patch(info: Variant, tag: String, full_size: int) -> Dictionary:
+	var filename := "BREAKPOINT-Windows-x64-from-%s.zip" % version()
+	if not info is Dictionary or str(info.get("url", "")) != RELEASE_BASE + tag + "/" + filename:
+		return {}
+	var patch := _archive(info, filename)
+	if patch.is_empty() or int(patch.size) >= full_size:
+		return {}
+	var files: Variant = info.get("requires")
+	if not files is Dictionary or files.is_empty():
+		return {}
+	for name in files:
+		if name not in WINDOWS_RELEASE_FILES or not _valid_hash(str(files[name])):
+			return {}
+	patch["requires"] = files
+	return patch
+
+
+static func _valid_hash(value: String) -> bool:
+	if value.length() != 64:
+		return false
+	for digit in value:
+		if not digit in "0123456789abcdef":
+			return false
+	return true
+
+
+static func _matches_install(directory: String, files: Dictionary) -> bool:
+	for name: String in files:
+		if FileAccess.get_sha256(directory.path_join(name)) != files[name]:
+			return false
+	return true
+
+
+func _show_available() -> void:
+	var label := "Быстрое обновление" if candidate.has("requires") else "Полный архив"
+	_message("%s %s  ·  %.1f МБ" % [label, _version, int(candidate.size) / 1048576.0])
 
 func _downloaded(result: int, response: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS or response != 200:
@@ -138,6 +205,17 @@ func _downloaded(result: int, response: int, _headers: PackedStringArray, _body:
 
 
 func _process(_delta: float) -> void:
+	if _compare != null:
+		if _compare.is_alive():
+			return
+		if bool(_compare.wait_to_finish()):
+			candidate = _patch
+		_patch = {}
+		_compare = null
+		_checking = false
+		set_process(false)
+		_show_available()
+		return
 	if _verify != null:
 		if _verify.is_alive():
 			return
@@ -146,12 +224,13 @@ func _process(_delta: float) -> void:
 		if actual != str(candidate.sha):
 			_failed_download("Контрольная сумма не совпала. Скачай архив ещё раз.")
 			return
-		var path := CACHE_DIR.path_join(_version + "-" + str(candidate.name))
+		var path := _archive_path()
 		if DirAccess.rename_absolute(ProjectSettings.globalize_path(_temporary), ProjectSettings.globalize_path(path)) != OK:
 			_failed_download("Не удалось сохранить архив.")
 			return
 		_temporary = ""
 		_verified = path
+		_verified_sha = actual
 		_working = false
 		set_process(false)
 		_open_archive()
@@ -162,9 +241,16 @@ func _process(_delta: float) -> void:
 			_message("Скачиваем версию %s… %d%%" % [_version, progress])
 
 
+func _archive_path() -> String:
+	return CACHE_DIR.path_join(_version + "-" + str(candidate.name))
+
+
 func _open_archive() -> void:
 	if OS.shell_open(ProjectSettings.globalize_path(_verified)) == OK:
-		_message("Архив проверен и открыт. Закрой игру перед заменой файлов.")
+		if candidate.has("requires"):
+			_message("Обновление проверено. Закрой игру и распакуй файлы с заменой в папку BREAKPOINT.exe.")
+		else:
+			_message("Архив проверен и открыт. Закрой игру перед заменой файлов.")
 	else:
 		OS.shell_open(ProjectSettings.globalize_path(CACHE_DIR))
 		_message("Архив проверен. Открой его из папки обновлений.")
@@ -180,6 +266,8 @@ func _failed_download(reason: String) -> void:
 
 
 func _exit_tree() -> void:
+	if _compare != null and _compare.is_started():
+		_compare.wait_to_finish()
 	if _verify != null and _verify.is_started():
 		_verify.wait_to_finish()
 
