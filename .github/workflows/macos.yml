@@ -38,6 +38,8 @@ jobs:
           unzip -jo templates.tpz templates/macos.zip -d "$folder"
           echo "GODOT_BIN=$RUNNER_TEMP/Godot.app/Contents/MacOS/Godot" >> "$GITHUB_ENV"
       - name: Build and run the universal application
+        env:
+          BREAKPOINT_RELAY_URL: wss://tearbown.vercel.app/api/rooms
         run: |
           bash build_macos.sh "$RUNNER_TEMP/breakpoint"
           "$RUNNER_TEMP/breakpoint/BREAKPOINT.app/Contents/MacOS/BREAKPOINT" \
