@@ -293,6 +293,8 @@ func _create_web_room() -> void:
 func _create_room() -> void:
 	WebSession.leave()
 	var box := _interior("ПРЯТКИ   /   СОЗДАНИЕ", "Создать комнату", "", _home)
+	box.add_child(MenuStyle.button("Арена · игра с браузером", func():
+		WebSession.host_online(GameState.LEVEL_HIDE, {"seek": 105}), true, 64))
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED

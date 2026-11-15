@@ -17,7 +17,7 @@ const WEB_MAP := ["Арена", "Компактная карта для брау
 
 
 func room_map_allowed(map: String) -> bool:
-	return map == LEVEL_HIDE if OS.has_feature("web") else MAPS.has(map)
+	return map == LEVEL_HIDE if OS.has_feature("web") else (map == LEVEL_HIDE or MAPS.has(map))
 
 
 func map_info(map: String) -> Array:

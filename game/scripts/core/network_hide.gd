@@ -273,14 +273,14 @@ func _tick_round(delta: float) -> void:
 			if _remaining <= 0.0:
 				_finish("Прячущиеся продержались")
 		"done":
-			if OS.has_feature("web") and _remaining <= 0.0:
+			if GameState.level == GameState.LEVEL_HIDE and _remaining <= 0.0:
 				_start_round()
 
 
 func _try_start() -> void:
 	if _phase != "wait" or _ready_sides.size() != WebSession.roster.size() or _match_started:
 		return
-	if OS.has_feature("web") or WebSession.auto_rounds():
+	if GameState.level == GameState.LEVEL_HIDE or WebSession.auto_rounds():
 		_start_round()
 	else:
 		_phase = "brief"

@@ -39,7 +39,7 @@ end
 if not room or now >= room.expires then return answer({error='missing'}) end
 local peer = room.peers[id]
 if op == 'join' then
-    if room.web ~= (ARGV[6] == 'web') then return answer({error='platform'}) end
+    if ARGV[6] == 'web' and room.rules.map ~= 'hide' then return answer({error='platform'}) end
     if room.started then return answer({error='full'}) end
     local count = 0
     for otherId, other in pairs(room.peers) do
@@ -60,7 +60,7 @@ if op == 'join' then
 end
 if not peer or peer.token ~= token or peer.deadline < now then return answer({error='missing'}) end
 if op == 'resume' then
-    if room.web ~= (ARGV[6] == 'web') then return answer({error='platform'}) end
+    if ARGV[6] == 'web' and room.rules.map ~= 'hide' then return answer({error='platform'}) end
     for otherId, other in pairs(room.peers) do
         if other.deadline < now and (room.started or otherId == '1') then
             finish()

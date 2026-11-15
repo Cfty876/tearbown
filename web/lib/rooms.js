@@ -11,7 +11,7 @@ const TOKEN = /^[0-9a-f]{64}$/;
 const CURSOR = /^\d{1,14}-\d{1,8}$/;
 const errors = {
   missing: "Комната закрыта или время переподключения истекло.",
-  platform: "Запустите ту же версию игры, что и создатель комнаты.",
+  platform: "Для совместной игры с браузером создайте комнату на карте «Арена».",
   full: "Комната заполнена или игра уже началась.",
   sequence: "Не удалось восстановить порядок игровых событий.",
   media: "Передача кассет доступна в комнатах на двоих.",
@@ -257,7 +257,7 @@ export function createRooms({ redis, commands = redis, namespace, rotateMs = 245
           let result;
           if (msg.op === "create") {
             const rules = msg.rules;
-            if (!rules || !(web ? rules.map === "hide" : MAPS.has(rules.map)) ||
+            if (!rules || !(rules.map === "hide" || (!web && MAPS.has(rules.map))) ||
                 ![rules.seekers, rules.hiders].every(n => Number.isInteger(n) && n >= 1 && n <= 4) ||
                 (rules.bot === true && rules.map !== "school") || JSON.stringify(rules).length > 1800) {
               return fail(ws, "Неверные настройки комнаты.");
