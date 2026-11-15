@@ -1,16 +1,16 @@
 {
-  "version": "1.1.5",
-  "tag": "breakpoint-v1.1.5",
+  "version": "1.1.6",
+  "tag": "breakpoint-v1.1.6",
   "platforms": {
     "windows": {
-      "url": "https://github.com/Cfty876/tearbown/releases/download/breakpoint-v1.1.5/BREAKPOINT-Windows-x64.zip",
-      "size": 89983931,
-      "sha256": "c82a1d39f9730d898a390741e187d8f23289b9b666311f03438c039fd0df5fe8",
+      "url": "https://github.com/Cfty876/tearbown/releases/download/breakpoint-v1.1.6/BREAKPOINT-Windows-x64.zip",
+      "size": 89988040,
+      "sha256": "39a6c2434edcbf5765c13ea59ca5acc4fe91f22e0c61b156a8efeb093537ca81",
       "patches": {
-        "1.1.4": {
-          "url": "https://github.com/Cfty876/tearbown/releases/download/breakpoint-v1.1.5/BREAKPOINT-Windows-x64-from-1.1.4.zip",
-          "size": 7847507,
-          "sha256": "9a19cc796a705c17e70bbe03b01a30460f0ef9aaac25317fd99818df626ecdf9",
+        "1.1.5": {
+          "url": "https://github.com/Cfty876/tearbown/releases/download/breakpoint-v1.1.6/BREAKPOINT-Windows-x64-from-1.1.5.zip",
+          "size": 7851605,
+          "sha256": "7244af9a76f4a0f3bb1789c317215a1e0809f57f833ac62de42173566e26d51a",
           "requires": {
             "BREAKPOINT.exe": "d34d36f3be1a6c49c56525ae86469b92e4f417ddf0b43cf00dd80c385c4b0562",
             "COPYRIGHT-Godot.txt": "cb1980c88089573bcacd7221d777c689bb8bbd778799f24c27fca0fe5f774d6d",
@@ -20,11 +20,12 @@
             "voxcore.dll": "1a0836245dc59cb06f69e3b085ad350ccdc794f8e5ab10ca6e296b4239841dc4"
           }
         },
-        "1.1.3": {
-          "url": "https://github.com/Cfty876/tearbown/releases/download/breakpoint-v1.1.5/BREAKPOINT-Windows-x64-from-1.1.3.zip",
-          "size": 45733710,
-          "sha256": "c237cbf612c0a46290dfaf4f3d1a01a834b69aa5c670fbfdc6768a10ec7397d0",
+        "1.1.4": {
+          "url": "https://github.com/Cfty876/tearbown/releases/download/breakpoint-v1.1.6/BREAKPOINT-Windows-x64-from-1.1.4.zip",
+          "size": 7851605,
+          "sha256": "7244af9a76f4a0f3bb1789c317215a1e0809f57f833ac62de42173566e26d51a",
           "requires": {
+            "BREAKPOINT.exe": "d34d36f3be1a6c49c56525ae86469b92e4f417ddf0b43cf00dd80c385c4b0562",
             "COPYRIGHT-Godot.txt": "cb1980c88089573bcacd7221d777c689bb8bbd778799f24c27fca0fe5f774d6d",
             "libnobodywho-godot-x86_64-pc-windows-msvc-release.dll": "19e569784651288ab2aeacde30d7b976aaedc612de00e1b32027180f1bf2ba6c",
             "LICENSE-Godot.txt": "b0435e3b3e4e55238f05f4b306f30524a1b2e20147810d436eaa554fa6855c80",
@@ -35,9 +36,9 @@
       }
     },
     "macos": {
-      "url": "https://github.com/Cfty876/tearbown/releases/download/breakpoint-v1.1.5/BREAKPOINT-macOS.zip",
-      "size": 67732117,
-      "sha256": "72d4b01c1ba2b1cf20eb6ac1f14c3e4b33d5cd638ec185e86a3b2734a97e2f72",
+      "url": "https://github.com/Cfty876/tearbown/releases/download/breakpoint-v1.1.6/BREAKPOINT-macOS.zip",
+      "size": 67736193,
+      "sha256": "af1c8382ca5d3f6436f8e55f2bced6d4e41226c2acde0bde619b766c66083ee1",
       "notarized": false
     }
   }
