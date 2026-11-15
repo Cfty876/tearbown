@@ -178,10 +178,15 @@ func _receive_online(message: Dictionary) -> void:
 	match operation:
 		"closed", "error":
 			_online_failed(str(message.get("message", "")))
-		"lobby", "start":
+		"reconnecting":
+			_status("Переподключаемся к комнате…")
+			get_tree().call_group("hud", "message", "Переподключаемся к комнате…", 4.0)
+		"lobby", "start", "resumed":
 			var options: Dictionary = message.get("rules", {})
 			var map := str(options.get("map", ""))
 			if connected:
+				if operation == "resumed":
+					get_tree().call_group("hud", "message", "Связь восстановлена", 3.0)
 				return
 			if not GameState.room_map_allowed(map):
 				_online_failed("Для этой комнаты нужна другая версия игры.")
@@ -200,7 +205,7 @@ func _receive_online(message: Dictionary) -> void:
 			if not joined and not OS.has_feature("web") and _online_url.begins_with("wss://"):
 				OnlineRooms.remember_url(_online_url)
 			joined = true
-			if operation == "start":
+			if operation == "start" or (operation == "resumed" and bool(message.get("started", false))):
 				roster.assign(_members)
 				local_side = roster.find(_online_id)
 				connected = true
