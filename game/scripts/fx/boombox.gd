@@ -13,6 +13,7 @@ var local: AudioStreamPlayer3D
 var remote: AudioStreamPlayer3D
 var _out := {}
 var _in := {}
+var _cached_remote := {}
 var _local_id := 0
 var _remote_id := 0
 var _round := 0
@@ -40,6 +41,7 @@ var _list: ItemList
 var _status: Label
 var _play: Button
 var _dialog: FileDialog
+var _file_callback: JavaScriptObject
 
 
 func _ready() -> void:
@@ -54,6 +56,7 @@ func _speaker(bus_name: StringName) -> AudioStreamPlayer3D:
 	speaker.unit_size = 13.0
 	speaker.max_distance = 104.0
 	speaker.max_db = -3.0
+	speaker.playback_type = AudioServer.PLAYBACK_TYPE_STREAM
 	if DisplayServer.get_name() != "headless":
 		if AudioServer.get_bus_index(bus_name) < 0:
 			AudioServer.add_bus()
@@ -67,7 +70,7 @@ func _speaker(bus_name: StringName) -> AudioStreamPlayer3D:
 
 func toggle() -> void:
 	var entry := library.current()
-	if local.playing or _pending_play:
+	if local.playing or _pending_play or not _out.is_empty():
 		var switching := not entry.is_empty() and str(entry.id) != _active_tape_id
 		_stop_local(true, switching)
 		if not switching:
@@ -92,19 +95,23 @@ func toggle() -> void:
 	if is_instance_valid(_local_model) and is_placed():
 		_local_model.insert_tape(_local_tint)
 	_pending_play = true
-	if WebSession.can_share_media() and _send("offer", _local_id, {"ext": entry.ext, "size": bytes.size(), "color": _local_tint}):
+	if WebSession.can_share_media() and _send("offer", _local_id, {
+		"ext": entry.ext, "size": bytes.size(), "color": _local_tint, "digest": CassetteLibrary.digest(bytes)}):
 		_out = {"bytes": bytes, "sent": 0, "acked": 0, "time": TRANSFER_TIMEOUT}
 		_feedback("Передаём кассету…")
+	elif WebSession.connected:
+		_feedback("Кассета играет у тебя. Синхронизация доступна в комнате на двоих." if not WebSession.can_share_media()
+			else "Кассета играет у тебя. Не удалось начать передачу.")
 
 
-func _play_at(speaker: AudioStreamPlayer3D, at: Vector3) -> void:
+func _play_at(speaker: AudioStreamPlayer3D, at: Vector3, offset := 0.0) -> void:
 	speaker.global_position = at
 	_shape_speaker(speaker, speaker == remote)
-	speaker.play()
+	speaker.play(offset)
 
 
 func _stop_local(notify := true, keep_radio := false) -> void:
-	if notify and (local.playing or _pending_play):
+	if notify and (local.playing or _pending_play or not _out.is_empty()):
 		_send("stop", _local_id)
 	local.stop()
 	_out.clear()
@@ -140,24 +147,33 @@ func _process(delta: float) -> void:
 	if _insert_left > 0.0 and _insert_left <= delta:
 		world.sfx.play_ui("click", -3.0, 0.71)
 	_insert_left = maxf(0.0, _insert_left - delta)
+	local.global_position = _source(false)
+	remote.global_position = _source(true)
+	if _pending_play and _insert_left <= 0.0:
+		_pending_play = false
+		_play_at(local, local.global_position)
+		if _out.is_empty() and not WebSession.connected:
+			_feedback(_pending_title)
 	if not _out.is_empty():
-		_out.time -= delta
+		if not WebSession.is_reconnecting():
+			_out.time -= delta
 		if _out.time <= 0.0:
-			_stop_local()
-			_feedback("Кассета не загрузилась у второго игрока.")
+			_end_transfer("Кассета играет у тебя. Второй игрок не успел её получить.")
+		elif _out.get("ready", false):
+			if not _pending_play:
+				var offset := local.get_playback_position() if local.playing else 0.0
+				if _send("start", _local_id, {"offset": offset}):
+					_out.clear()
+					_feedback(_pending_title)
 		else:
 			_send_chunks()
 	if not _in.is_empty():
-		_in.time -= delta
+		if not WebSession.is_reconnecting():
+			_in.time -= delta
 		if _in.time <= 0.0:
 			_in.clear()
-	local.global_position = _source(false)
-	remote.global_position = _source(true)
-	if _pending_play and _insert_left <= 0.0 and _out.is_empty():
-		_pending_play = false
-		_play_at(local, local.global_position)
-		_send("start", _local_id)
-		_feedback(_pending_title)
+		elif _in.get("ready", false) and not _in.get("announced", false):
+			_in.announced = _send("ready", _remote_id, {"reuse": _in.get("reuse", false)})
 	_range_update -= delta
 	if _range_update <= 0.0:
 		_range_update = 0.12
@@ -170,13 +186,21 @@ func _process(delta: float) -> void:
 	if is_instance_valid(_remote_box) and _remote_box.visible:
 		_remote_model.meter(remote.playing, _remote_bands, _on_radio(true))
 	if is_instance_valid(_panel) and _panel.visible:
-		_play.text = "Остановить" if (local.playing or _pending_play) and library.selected == _active_tape_id else "Воспроизвести"
+		_play.text = "Остановить" if (local.playing or _pending_play or not _out.is_empty()) and library.selected == _active_tape_id else "Воспроизвести"
+
+
+func _end_transfer(message: String) -> void:
+	_send("stop", _local_id)
+	_out.clear()
+	_feedback(message)
 
 
 func _spectrum(speaker: AudioStreamPlayer3D) -> Vector3:
 	if not speaker.playing or speaker.bus == &"Master":
 		return Vector3.ZERO
 	var index := AudioServer.get_bus_index(speaker.bus)
+	if index < 0 or AudioServer.get_bus_effect_count(index) == 0:
+		return Vector3.ZERO
 	var spectrum := AudioServer.get_bus_effect_instance(index, 0) as AudioEffectSpectrumAnalyzerInstance
 	if spectrum == null:
 		return Vector3.ZERO
@@ -262,7 +286,7 @@ func _authorize_radio(side: int, enabled: bool) -> void:
 
 
 func _set_radio_owner(side: int) -> void:
-	if _radio_owner == side:
+	if _radio_owner == side or (side >= 0 and not is_instance_valid(world.secrets)):
 		return
 	var previous := _radio_owner
 	_radio_owner = side
@@ -428,7 +452,7 @@ func shotgun_hit(body: StaticBody3D, shooter: Player) -> void:
 		return
 	var other := shooter == world.player
 	var target := _remote_box if other else _local_box
-	if body != target or not target.visible:
+	if not is_instance_valid(target) or body != target or not target.visible:
 		return
 	var wired := _on_radio(other)
 	var id := RADIO_DOCK if wired else (_remote_deployment if other else _local_deployment)
@@ -524,7 +548,8 @@ func _receive(packet: Dictionary) -> void:
 		"box_place":
 			var at: Variant = packet.get("at")
 			var yaw := float(packet.get("yaw", 0.0))
-			if not _on_radio(true) and id > _remote_deployment and at is Vector3 and at.is_finite() and at.distance_squared_to(remote_position) <= 64.0 and is_finite(yaw):
+			if (not _on_radio(true) and id > _remote_deployment and at is Vector3 and at.is_finite()
+					and at.distance_squared_to(remote_position) <= 64.0 and is_finite(yaw)):
 				_remote_deployment = id
 				var tint: Variant = packet.get("color")
 				if tint is Color:
@@ -553,7 +578,12 @@ func _receive(packet: Dictionary) -> void:
 				_remote_tint = tint
 				if is_instance_valid(_remote_model) and _remote_box.visible:
 					_remote_model.insert_tape(tint)
-			_in = {"size": size, "ext": ext, "bytes": PackedByteArray(), "at": 0, "time": TRANSFER_TIMEOUT}
+			var digest := str(packet.get("digest", ""))
+			var reuse := (digest.length() == 64 and digest == _cached_remote.get("digest", "")
+				and size == _cached_remote.get("size", 0) and ext == _cached_remote.get("ext", ""))
+			remote.stream = _cached_remote.stream if reuse else null
+			_in = {"size": size, "ext": ext, "bytes": PackedByteArray(), "at": 0, "time": TRANSFER_TIMEOUT,
+				"digest": digest, "ready": reuse, "reuse": reuse}
 		"chunk":
 			if id == _remote_id and not _in.is_empty():
 				_accept_chunk(packet, id)
@@ -564,12 +594,19 @@ func _receive(packet: Dictionary) -> void:
 					_out.acked = offset
 					_out.time = TRANSFER_TIMEOUT
 		"ready":
-			if id == _local_id and not _out.is_empty() and int(_out.sent) == _out.bytes.size():
-				_out.clear()
+			if (id == _local_id and not _out.is_empty()
+					and (bool(packet.get("reuse", false)) or int(_out.sent) == _out.bytes.size())):
+				_out.ready = true
+				_out.time = TRANSFER_TIMEOUT
+		"reject":
+			if id == _local_id and not _out.is_empty():
+				_end_transfer("Кассета играет у тебя. Второй игрок не смог её прочитать.")
 		"start":
-			if id == _remote_id and _in.get("ready", false):
+			if id == _remote_id and _in.get("ready", false) and remote.stream != null:
 				_in.clear()
-				_play_at(remote, _source(true))
+				var offset := float(packet.get("offset", 0.0))
+				if is_finite(offset) and offset >= 0.0 and offset < remote.stream.get_length():
+					_play_at(remote, _source(true), offset)
 		"stop":
 			if id == _remote_id:
 				_in.clear()
@@ -595,8 +632,11 @@ func _accept_chunk(packet: Dictionary, id: int) -> void:
 		remote.stream = CassetteLibrary.decode(bytes, _in.ext)
 		if remote.stream != null:
 			_in.ready = true
-			_send("ready", id)
+			var digest := str(_in.digest)
+			if digest.length() == 64 and CassetteLibrary.digest(bytes) == digest:
+				_cached_remote = {"digest": digest, "size": end, "ext": _in.ext, "stream": remote.stream}
 		else:
+			_send("reject", id)
 			_in.clear()
 	elif end % (CHUNK * 2) == 0:
 		_send("ack", id, {"at": end})
@@ -678,7 +718,7 @@ func _make_panel() -> void:
 	body.add_child(buttons)
 	_play = MenuStyle.button("Воспроизвести", _play_from_library, true, 43)
 	buttons.add_child(_play)
-	buttons.add_child(MenuStyle.button("Импорт", func(): _dialog.popup_centered_ratio(0.72), false, 43))
+	buttons.add_child(MenuStyle.button("Импорт", _pick_file, false, 43))
 	buttons.add_child(MenuStyle.button("Закрыть", _close_library, false, 43))
 	_dialog = FileDialog.new()
 	_dialog.title = "Импорт кассеты"
@@ -687,6 +727,32 @@ func _make_panel() -> void:
 	_dialog.filters = PackedStringArray(["*.mp3, *.ogg, *.wav ; Аудиофайлы"])
 	_dialog.file_selected.connect(_import)
 	_panel.add_child(_dialog)
+
+
+func _pick_file() -> void:
+	if not OS.has_feature("web"):
+		_dialog.popup_centered_ratio(0.72)
+		return
+	var browser := JavaScriptBridge.get_interface("BreakpointAudio")
+	if browser == null:
+		_feedback("Открытие файла в браузере недоступно.")
+		return
+	_file_callback = JavaScriptBridge.create_callback(_import_web)
+	browser.pick(CassetteLibrary.MAX_BYTES, _file_callback)
+
+
+func _import_web(values: Array) -> void:
+	_file_callback = null
+	if values.is_empty() or not is_instance_valid(_panel):
+		return
+	var filename := str(values[0])
+	if values.size() < 2:
+		_feedback(str(values[0]))
+		return
+	var bytes := JavaScriptBridge.js_buffer_to_packed_byte_array(values[1])
+	var error := library.import_bytes(bytes, filename)
+	_refresh_list()
+	_feedback("Кассета сохранена." if error.is_empty() else error)
 
 
 func _refresh_list() -> void:

@@ -38,17 +38,19 @@ func select(id: String) -> void:
 
 
 func import_file(path: String, title := "") -> String:
-	var ext := path.get_extension().to_lower()
 	var input := FileAccess.open(path, FileAccess.READ)
-	if ext not in FORMATS or input == null or input.get_length() > MAX_BYTES:
+	if input == null or input.get_length() > MAX_BYTES:
 		return "Выбери MP3, OGG или WAV размером до 20 МБ."
-	var bytes := input.get_buffer(input.get_length())
+	return import_bytes(input.get_buffer(input.get_length()), path.get_file(), title)
+
+
+func import_bytes(bytes: PackedByteArray, filename: String, title := "") -> String:
+	var ext := filename.get_extension().to_lower()
+	if ext not in FORMATS or bytes.size() > MAX_BYTES:
+		return "Выбери MP3, OGG или WAV размером до 20 МБ."
 	if decode(bytes, ext) == null:
 		return "Не удалось прочитать аудиофайл."
-	var hash := HashingContext.new()
-	hash.start(HashingContext.HASH_SHA256)
-	hash.update(bytes)
-	var id := hash.finish().hex_encode()
+	var id := digest(bytes)
 	for entry in entries:
 		if entry.id == id:
 			select(id)
@@ -60,7 +62,7 @@ func import_file(path: String, title := "") -> String:
 		return "Не удалось сохранить кассету."
 	output.store_buffer(bytes)
 	output.close()
-	entries.append({"id": id, "ext": ext, "title": title if not title.is_empty() else path.get_file().get_basename(),
+	entries.append({"id": id, "ext": ext, "title": title if not title.is_empty() else filename.get_file().get_basename(),
 		"color": _new_color()})
 	selected = id
 	if _save() != OK:
@@ -97,6 +99,13 @@ func read(entry: Dictionary) -> PackedByteArray:
 	if input == null or input.get_length() > MAX_BYTES:
 		return PackedByteArray()
 	return input.get_buffer(input.get_length())
+
+
+static func digest(bytes: PackedByteArray) -> String:
+	var context := HashingContext.new()
+	context.start(HashingContext.HASH_SHA256)
+	context.update(bytes)
+	return context.finish().hex_encode()
 
 
 static func decode(bytes: PackedByteArray, ext: String) -> AudioStream:

@@ -50,6 +50,35 @@
       }
     });
 
+    window.BreakpointAudio = {
+      pick(limit, done) {
+        const picker = document.createElement("input");
+        picker.type = "file";
+        picker.accept = ".mp3,.ogg,.wav";
+        picker.hidden = true;
+        document.body.append(picker);
+        picker.addEventListener("cancel", () => {
+          picker.remove();
+          canvas.focus();
+          done();
+        }, { once: true });
+        picker.addEventListener("change", async () => {
+          const file = picker.files[0];
+          picker.remove();
+          canvas.focus();
+          if (!file) return done();
+          if (file.size > limit) return done("Выбери MP3, OGG или WAV размером до 20 МБ.");
+          try {
+            const data = await file.arrayBuffer();
+            done(file.name, data);
+          } catch {
+            done("Не удалось открыть аудиофайл.");
+          }
+        }, { once: true });
+        picker.click();
+      }
+    };
+
     const button = document.querySelector("#boot");
     const bar = document.querySelector("#progress");
     const status = document.querySelector("#boot-status");
